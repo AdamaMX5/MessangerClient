@@ -1,7 +1,8 @@
 # MessengerClient — Implementierungsplan
 
-> Discord-ähnliches UI-Mockup auf späterer Basis der Virtual-Office-Microservice-Architektur
-Wer nur mit dem MessangerClient angemeldet ist, erscheint für die im Virtuellen Büro an seinem Schreibtisch und ist ansprechbar (ProxyCall wird für den in dem MessangerClient ein klassischer Call)
+> Discord-ähnliches UI-Mockup auf späterer Basis der Virtual-Office-Microservice-Architektur.
+
+> Wer später nur mit dem MessangerClient angemeldet ist, erscheint für die im Virtuellen Büro an seinem Schreibtisch und ist ansprechbar (ProxyCall wird für den in dem MessangerClient ein klassischer Call)
 
 ---
 
