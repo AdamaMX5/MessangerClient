@@ -404,6 +404,65 @@ Das macht eine separate "Registrieren"-Seite überflüssig — die Login-Maske e
 
 ---
 
+## Ende-zu-Ende-Verschlüsselung *(Feature — noch zu diskutieren)*
+
+> **Status:** Konzept, noch nicht beschlossen. Muss vor Implementierungsbeginn mit dem Team abgestimmt werden (Aufwand, UX, Multi-Device-Anforderungen).
+
+### Ansatz: TweetNaCl.js + passwortgeschützter Key-Backup
+
+#### Bibliothek
+`tweetnacl` (~7 kb, auditiert) — `nacl.box` = X25519 Diffie-Hellman + XSalsa20-Poly1305.
+
+#### Funktionsprinzip
+
+```
+Registrierung / erster Login:
+  1. Client generiert Keypair: { publicKey, secretKey } = nacl.box.keyPair()
+  2. publicKey → ProfileService (neues Feld im GlobalProfile)
+  3. secretKey → mit PBKDF2 + Benutzerpasswort verschlüsseln
+  4. Verschlüsselter Key-Blob → ObjectService (collection: "e2e-keys", ref: { userId })
+
+Nachricht senden:
+  1. publicKey des Empfängers aus ProfileService laden
+  2. Ephemeres Keypair generieren (pro Nachricht) → Forward Secrecy
+  3. nacl.box(message, nonce, recipientPublicKey, ephemeralSecretKey)
+  4. Ciphertext + Nonce + ephemeralPublicKey als Base64 in message.body speichern
+
+Nachricht empfangen:
+  1. Base64 dekodieren → Ciphertext, Nonce, ephemeralPublicKey extrahieren
+  2. nacl.box.open(ciphertext, nonce, ephemeralPublicKey, mySecretKey)
+  3. Klartext anzeigen
+```
+
+#### Multi-Device (Cross-Device-Sync)
+
+Da der Private Key pro Gerät in der IndexedDB liegt, kann ein zweites Gerät (z. B. Handy) ohne Key-Übertragung keine Nachrichten entschlüsseln.
+
+**Lösung — verschlüsselter Key-Backup im ObjectService:**
+
+```
+Neues Gerät / Handy-Login:
+  1. Verschlüsselten Key-Blob vom ObjectService laden
+  2. Benutzer gibt Passwort ein
+  3. PBKDF2(passwort, salt) → AES-GCM-Key → secretKey entschlüsseln
+  4. secretKey in lokale IndexedDB laden
+  → Alle alten und neuen Nachrichten lesbar
+```
+
+Der Server speichert den Key **nur verschlüsselt** — ohne das Benutzerpasswort ist er wertlos. Das Passwort verlässt das Gerät nie.
+
+#### Offene Fragen / Diskussionspunkte
+
+| Frage | Optionen |
+|-------|---------|
+| Welches Passwort für den Key-Backup? | Login-Passwort wiederverwenden · separates Verschlüsselungspasswort |
+| Was passiert bei Passwortreset? | Key-Blob wird unlesbar → Nutzer verliert alte Nachrichten |
+| Gruppen-Chats? | Komplexer: symmetrischer Gruppenkey, der für jeden Teilnehmer separat verschlüsselt wird |
+| Rückwärtskompatibilität? | Nachrichten von vor der E2E-Aktivierung bleiben Klartext im MessageService |
+| Key-Rotation? | Neuer Key bei Passwortwechsel — alle Kontakte müssen neuen publicKey laden |
+
+---
+
 ## Verifikation
 
 Nach Abschluss der Implementierung müssen folgende Szenarien fehlerfrei funktionieren:
