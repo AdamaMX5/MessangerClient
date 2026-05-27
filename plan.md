@@ -1,6 +1,7 @@
 # MessengerClient — Implementierungsplan
 
 > Discord-ähnliches UI-Mockup auf späterer Basis der Virtual-Office-Microservice-Architektur
+Wer nur mit dem MessangerClient angemeldet ist, erscheint für die im Virtuellen Büro an seinem Schreibtisch und ist ansprechbar (ProxyCall wird für den in dem MessangerClient ein klassischer Call)
 
 ---
 
@@ -60,6 +61,7 @@ MessangerClient/
     │   └── AppContext.tsx          # React Context: aktiver User, aktive Conversation
     ├── services/                   # Vorbereitung für echte API-Anbindung
     │   ├── authService.ts          # AuthService-Aufrufe (Login, Refresh, Logout)
+    │   ├── profileService.ts       # Name und AvatarURL
     │   ├── messageService.ts       # MessageService-Aufrufe
     │   └── meetingService.ts       # LiveKit / RecordingService
     ├── components/
@@ -137,7 +139,7 @@ Die Oberfläche ist in vier Spalten gegliedert — Spalte 4 ist optional und kon
 
 ```
 ┌──────┬──────────────────┬──────────────────────────────────┬─────────────┐
-│      │                  │  TopBar  (Gesprächsname + Icons)              │
+│      │                  │  TopBar  (Gesprächsname + Icons)               │
 │      │                  ├──────────────────────────────────┼─────────────┤
 │ App  │ Channel          │                                  │             │
 │ Side │ Sidebar          │   ChatArea                       │  UserList   │
@@ -194,6 +196,7 @@ Discord Dark Theme als Grundlage; alle Werte werden als Tailwind Custom Tokens d
 | `online` | `#3BA55C` | Online-Status |
 | `away` | `#FAA61A` | Abwesend |
 | `dnd` | `#ED4245` | Nicht stören |
+| `offline` | `#747F8D` | Nicht erreichbar |
 
 ---
 
@@ -220,7 +223,7 @@ Discord Dark Theme als Grundlage; alle Werte werden als Tailwind Custom Tokens d
 
 ### Phase 4 — Chat
 
-11. `MessageBubble.tsx` — Nachricht mit Avatar, Absender-Name, Zeitstempel, Text
+11. `MessageBubble.tsx` — Nachricht mit Avatar, Absender-Name, Zeitstempel, Text, fremde Bubble links + eigene Bubble rechts anordnen
 12. `ChatArea.tsx` — Verlauf rendern, auto-scroll ans Ende, Datum-Trennlinien
 13. `MessageInput.tsx` — Eingabefeld + Senden-Button; Enter fügt lokale Mock-Nachricht hinzu
 
@@ -234,6 +237,7 @@ Discord Dark Theme als Grundlage; alle Werte werden als Tailwind Custom Tokens d
 16. Responsive Verhalten: UserListPanel auf kleinen Screens ausblenden
 17. Hover-Effekte, aktive Konversation hervorheben, Übergänge
 18. Favicon + Seitentitel "MessengerClient"
+19. Chats als Favoriten anpinnen
 
 ---
 
@@ -261,7 +265,7 @@ Client                        AuthService
   │    device_fingerprint,        │
   │    device_name }              │
   │ ─────────────────────────── > │
-  │                               │  Validiert Credentials (bcrypt via passlib.CryptContext auth.py:28)
+  │                               │  Validiert Credentials (bcrypt via passlib.CryptContext AuthService/auth.py:28)
   │                               │  In der Datenbank wird get_password_hash(password) gespeichert. Der JWT wird nicht gespeichert. Der Refresh-Token wird mit SHA-256 gehasht in der Datenbank gespeichert (schneller und es gibt keine leicht erratbaren Token)
   │  200 { access_token, ... }    │  Erstellt Access-JWT & Refresh-Token
   │  Set-Cookie: refresh_token    │  hash(refresh_token) + hash(csrf_token) → DB
@@ -293,11 +297,13 @@ Pro Request:
 Der JWT-Payload enthält `user_id`, `email`, eine Liste von `roles` und ein Dict von `permissions`. Der Client liest diese Felder aus dem dekodiertem Token, um UI-Elemente rollenabhängig zu rendern (Admin-Bereiche etc.).
 
 > **Achtung:** Der Client darf die JWT-Signatur nicht als Sicherheitsbeweis behandeln. Die Verifikation findet serverseitig statt. Client-seitiges Dekodieren dient ausschließlich der UI-Steuerung.
-Falls der JWT gefälscht ist und das Adminrecht gegeben wurde, dann wird der Adminbereicht des Clients zwar angezeigt, aber die Request werden durch die falsche Signatur von den Services abgelehnt.
+Falls der JWT gefälscht ist und das Adminrecht gegeben wurde, dann wird der Adminbereicht des Clients zwar angezeigt, aber die Requests werden durch die falsche Signatur von den Services abgelehnt.
 
 ### Token-Refresh
 
 Da Access Tokens kurzlebig sind, muss der Client sie regelmäßig erneuern:
+Die Auto-Refresh Strategie ist, dass die App alle 10 Minuten den Refresh durchführt. 
+Requests die noch den alten JWT nutzen funktionieren noch, da 5 Minuten bis zum Expire verbleiben und nicht gespeicherte JWT´s nicht gelöscht oder invalidiert werden können.
 
 ```
 Client                          AuthService
@@ -308,7 +314,7 @@ Client                          AuthService
   │  Cookie: refresh_token          │
   │  Cookie: csrf_token             │
   │  Header: X-CSRF-Token: <wert>   │  ← JS liest csrf_token-Cookie, setzt Header
-  │ ─────────────────────────────> │
+  │ ─────────────────────────────>  │
   │                                 │  hash(refresh_token) in DB suchen
   │                                 │  hash(csrf_token) mit DB-Eintrag vergleichen
   │                                 │  beide Hashes müssen übereinstimmen
@@ -316,7 +322,7 @@ Client                          AuthService
   │  200 { access_token }           │
   │  Set-Cookie: refresh_token (neu)│
   │  Set-Cookie: csrf_token (neu)   │
-  │ <───────────────────────────── │
+  │ <─────────────────────────────  │
   │                                 │
   │  Neuer Access Token → In-Memory │
 ```
@@ -370,7 +376,7 @@ Der AuthService verwendet einen **zweistufigen Registrierungsprozess**:
 1. `POST /user/login` mit neuer E-Mail → Response `{ status: "register" }`
 2. `POST /user/register` mit `password` + `repassword` → vollständiger Login
 
-Das macht eine separate "Registrieren"-Seite überflüssig — die Login-Maske erkennt neue E-Mail-Adressen automatisch und leitet zur Passwort wiederholung.
+Das macht eine separate "Registrieren"-Seite überflüssig — die Login-Maske erkennt neue E-Mail-Adressen automatisch und leitet zur Passwortwiederholung.
 
 ### Sicherheits-Checkliste für die Implementierung
 
@@ -395,7 +401,8 @@ Das macht eine separate "Registrieren"-Seite überflüssig — die Login-Maske e
 Nach Abschluss der Implementierung müssen folgende Szenarien fehlerfrei funktionieren:
 
 - `npm run dev` → App öffnet sich unter `localhost:5173`
-- `/login` zeigt das Login-Formular; Klick auf "Anmelden" leitet zu `/` weiter
+- `/login` zeigt das Login-Formular; Klick auf "Anmelden" leitet zu `/` weiter. ein Link zu registrieren zeigt ein klassisches Registrierungs-Modal
+- Wenn beim login nicht max@mustermann.de + beliebiges Passwort eingegeben wurde, dann wird erscheint ein zweites Passwort eingabefeld zur Wiederholung.
 - Konversation wechseln → ChatArea aktualisiert sich, Unread-Badge verschwindet
 - Nachricht tippen + Enter → Nachricht erscheint lokal im Verlauf
 - `npm run build` → keine TypeScript-Fehler, kein Konsolenfehler
