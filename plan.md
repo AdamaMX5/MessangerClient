@@ -80,9 +80,9 @@ MessangerClient/
     │   └── common/
     │       ├── Avatar.tsx          # Rundes Profilbild mit Status-Dot
     │       └── StatusBadge.tsx     # Online / Away / DND / Offline
-    └── pages/
-        ├── AuthPage.tsx            # Wrapper für LoginPage
-        └── ChatPage.tsx            # Haupt-Layout (alle Layout-Komponenten)
+    └── views/
+        ├── AuthView.tsx            # Wrapper für LoginView
+        └── ChatView.tsx            # Haupt-Layout (alle Layout-Komponenten)
 ```
 
 ---
@@ -151,6 +151,13 @@ Die Oberfläche ist in vier Spalten gegliedert — Spalte 4 ist optional und kon
 │      │ └ Space-Channels │                                  │             │
 └──────┴──────────────────┴──────────────────────────────────┴─────────────┘
 ```
+
+![Discord DirektMessage](discorddm.jpg)
+*Discord DM-Ansicht: AppSidebar (72 px, links) · DM- und Gruppenliste mit Mitgliederanzahl (240 px) · Nachrichtenverlauf mit Datums-Trennlinien · Mitgliederliste (200 px, rechts)*
+
+![Discord Server](discordserver.jpg)
+*Discord Server-Ansicht: AppSidebar mit Space-Icons · Kanal-Sidebar mit Kategorien (Text, Stage, Forum) · Chat-Bereich mit Link-Preview · Mitglieder nach Rollen gruppiert (Operator, Moderator, Donator)*
+
 
 ### Spalte 1 — AppSidebar (72 px)
 
