@@ -9,15 +9,17 @@
 ## Inhalt
 
 1. [Kontext & Ziel](#kontext--ziel)
-2. [Stack](#stack)
-3. [Projektstruktur](#projektstruktur)
-4. [Datenmodell](#datenmodell)
-5. [Mock-Daten](#mock-daten)
-6. [UI-Layout](#ui-layout)
-7. [Farbpalette](#farbpalette)
-8. [Umsetzungsschritte](#umsetzungsschritte)
-9. [Auth-Architektur & Sicherheit](#auth-architektur--sicherheit)
-10. [Verifikation](#verifikation)
+2. [Spaces & Rollen-Konzept](#spaces--rollen-konzept)
+3. [Stack](#stack)
+4. [Projektstruktur](#projektstruktur)
+5. [Datenmodell](#datenmodell)
+6. [Mock-Daten](#mock-daten)
+7. [UI-Layout](#ui-layout)
+8. [Farbpalette](#farbpalette)
+9. [Umsetzungsschritte](#umsetzungsschritte)
+10. [Auth-Architektur & Sicherheit](#auth-architektur--sicherheit)
+11. [Ende-zu-Ende-Verschlüsselung](#ende-zu-ende-verschlüsselung-feature--noch-zu-diskutieren)
+12. [Verifikation](#verifikation)
 
 ---
 
@@ -26,6 +28,72 @@
 Das Ziel ist ein reines **UI-Mockup** eines Messenger-Clients mit Discord-ähnlicher Optik — zunächst als Präsentations-Prototype ohne echte API-Aufrufe. Alle Daten sind statisch (hardcoded Mock-Daten).
 
 Das Datenmodell spiegelt die echte Microservice-Architektur (AuthService, MessageService, ProfileService) wider, damit ein späterer Umbau zum vollständigen Client mit minimalem Aufwand möglich ist.
+
+**Business-Kontext:** Der MessengerClient ist ein **internes Unternehmenswerkzeug** — nicht öffentlich zugänglich. Nutzerkonten werden ausschließlich durch Administratoren oder einen kontrollierten Registrierungsprozess angelegt. Externe Gäste (Kunden, Messekontakte) können eingeschränkte Konten mit der Rolle `Customer` erhalten.
+
+Das größte Sicherheitsrisiko ist der **Mitarbeiter selbst** (kompromittiertes Gerät, Insider-Bedrohung). Die Architektur schützt primär gegen externe Angreifer und verhindert, dass selbst der Serverbetreiber private Nachrichten lesen kann.
+
+---
+
+## Spaces & Rollen-Konzept
+
+### Spaces
+
+Spaces sind abgeschlossene Bereiche — vergleichbar mit Discord-Servern, aber auf den Unternehmenskontext zugeschnitten.
+
+| Space | Zugang | Zweck | Beispiel-Channels |
+|-------|--------|-------|-------------------|
+| **Büro München** | Nur Mitarbeiter | Interne Kommunikation nach Abteilungen | #allgemein, #buchhaltung, #it, #hr |
+| **Kundenkontakt** | Vertrieb + Customer-Nutzer | Externe Kommunikation, Akquise, Events | #virtueller-messestand, #webinare, #meetings, #kundengewinnung |
+
+Weitere Spaces (z. B. Büro Berlin, Freischule) folgen demselben Muster.
+
+### Rollen
+
+| Rolle | Beschreibung | Kann |
+|-------|-------------|------|
+| `Admin` | IT / Unternehmensadmin | Spaces und Channels erstellen, alle Nutzer verwalten, Rollen vergeben |
+| `Employee` | Mitarbeiter | Eigenen Spaces beitreten, DMs senden, Channel-Admin-Rechte erhalten |
+| `Channel-Admin` | Abteilungsleiter | Mitglieder zum Channel hinzufügen/entfernen, Key-Rotation auslösen |
+| `Channel-Assistent` | Assistent des Abteilungsleiters | Mitglieder hinzufügen, aber keine Key-Rotation |
+| `Customer` | Externer Gast / Kunde | Nur zugewiesene Channels im Kundenkontakt-Space sehen und schreiben |
+
+> `Channel-Admin` und `Channel-Assistent` sind keine globalen Rollen, sondern Channel-spezifische Berechtigungen — ein Mitarbeiter kann in Kanal A Admin und in Kanal B normales Mitglied sein.
+
+### Channel-Typen
+
+| Typ | Beispiel | E2E-Verschlüsselung | Beitritt |
+|-----|---------|--------------------|----|
+| Privater Abteilungs-Channel | #buchhaltung | ✅ AES-256 Gruppenkey | Nur per Einladung durch Channel-Admin |
+| Space-interner Channel | #allgemein | ✅ AES-256 Gruppenkey | Alle Space-Mitglieder automatisch |
+| Kunden-Channel | #meeting-musterfirma | ✅ AES-256 Gruppenkey | Einladung (Employee + Customer) |
+| Frei beitretbarer Channel | #virtueller-messestand | ❌ Nur HTTPS | Jeder mit Link / alle Space-Mitglieder |
+| Öffentliche Ankündigung | #news | ❌ Nur HTTPS | Nur lesen, kein Schreiben |
+
+> **Designentscheidung:** Frei beitretbare und öffentliche Channels werden bewusst nicht E2E-verschlüsselt. Da die Mitgliedschaft unkontrolliert ist, wäre ein Gruppenkey sinnlos — jeder könnte ihn erhalten. HTTPS schützt den Transport; der Serverbetreiber kann diese Nachrichten einsehen. Das ist für Webinare, Messestände und FAQ-Kanäle akzeptabel.
+
+### Channel-Erstellung — UI (Toggle-Logik)
+
+Beim Anlegen eines neuen Channels gibt es zwei Toggle-Einstellungen, die sich gegenseitig ausschließen:
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Neuen Channel erstellen                            │
+│                                                     │
+│  Name: [___________________________]                │
+│                                                     │
+│  [✅] Ende-zu-Ende-Verschlüsselung    ← Standard: AN │
+│       Nachrichten sind nur für Mitglieder lesbar.   │
+│                                                     │
+│  [☐ ] Frei beitretbar               ← Standard: AUS │
+│       Jeder mit dem Link kann beitreten.            │
+│       (Deaktiviert automatisch die Verschlüsselung) │
+│                                                     │
+│              [Abbrechen]  [Channel erstellen]       │
+└─────────────────────────────────────────────────────┘
+```
+
+**Regel:** Wird "Frei beitretbar" aktiviert, wird die Verschlüsselung automatisch deaktiviert und ausgegraut — und umgekehrt. Beide Toggles können nicht gleichzeitig aktiv sein.
 
 ---
 
@@ -133,6 +201,9 @@ interface Conversation {
 - **1 eingeloggter "Ich"-Nutzer**, fixiert im AppContext
 
 ---
+
+
+
 
 ## UI-Layout
 
@@ -451,15 +522,43 @@ Neues Gerät / Handy-Login:
 
 Der Server speichert den Key **nur verschlüsselt** — ohne das Benutzerpasswort ist er wertlos. Das Passwort verlässt das Gerät nie.
 
+#### Symmetrischer Gruppenkey für Channels
+
+1:1-DMs nutzen `nacl.box` (asymmetrisch). Für Channels (mehrere Teilnehmer) wird ein **symmetrischer AES-256-Key pro Channel** verwendet.
+
+```
+Channel wird erstellt (durch Channel-Admin-Client):
+  1. Admin-Client generiert AES-256-Key lokal (crypto.getRandomValues) → "Gruppenkey V1"
+  2. Key V1 wird für jedes Mitglied einzeln mit dessen publicKey verschlüsselt
+  3. Verschlüsselte Kopien → ObjectService (collection: "channel-keys", ref: { channelId, userId })
+  4. Nachrichten im Channel werden mit Key V1 + zufälliger Nonce verschlüsselt
+  5. message.body enthält: { ciphertext, nonce, keyVersion: 1 } als Base64-JSON
+
+Neues Mitglied tritt bei (Channel-Admin muss online sein):
+  1. Admin-Client generiert neuen AES-256-Key → "Gruppenkey V2"
+  2. Key V2 für alle aktuellen Mitglieder + neues Mitglied verschlüsseln & hochladen
+  3. Key V1 bleibt erhalten → alte Nachrichten bleiben lesbar
+  4. Neues Mitglied erhält nur V2 → kann Nachrichten vor seinem Beitritt nicht lesen ✅
+
+Mitglied verlässt / wird entfernt (Channel-Admin muss online sein):
+  1. Admin-Client generiert neuen AES-256-Key → "Gruppenkey V3"
+  2. Key V3 nur für verbleibende Mitglieder verschlüsseln & hochladen
+  3. Ausgetretenes Mitglied bekommt V3 nie → kann zukünftige Nachrichten nicht lesen ✅
+```
+
+> **Wichtig:** Key-Rotation erfordert immer einen **online Channel-Admin-Client** — der Server kann Keys weder generieren noch verteilen, da er sie im Klartext nie sieht. Ist kein Admin online, ist der Beitritt/Austritt ausstehend bis ein Admin sich einloggt.
+
+> Channel-Assistenten können Mitglieder hinzufügen, aber **keine Key-Rotation auslösen** — das bleibt dem Channel-Admin vorbehalten.
+
 #### Offene Fragen / Diskussionspunkte
 
 | Frage | Optionen |
 |-------|---------|
 | Welches Passwort für den Key-Backup? | Login-Passwort wiederverwenden · separates Verschlüsselungspasswort |
 | Was passiert bei Passwortreset? | Key-Blob wird unlesbar → Nutzer verliert alte Nachrichten |
-| Gruppen-Chats? | Komplexer: symmetrischer Gruppenkey, der für jeden Teilnehmer separat verschlüsselt wird |
-| Rückwärtskompatibilität? | Nachrichten von vor der E2E-Aktivierung bleiben Klartext im MessageService |
-| Key-Rotation? | Neuer Key bei Passwortwechsel — alle Kontakte müssen neuen publicKey laden |
+| Rückwärtskompatibilität? | Nachrichten vor der E2E-Aktivierung bleiben Klartext im MessageService |
+| Key-Rotation bei Passwortwechsel? | Neuer persönlicher Key → alle Channel-Admins müssen neu verschlüsseln |
+| Admin offline bei dringendem Mitgliederaustritt? | Notfall-Admin-Rolle oder zweiter Channel-Admin als Fallback definieren |
 
 ---
 
