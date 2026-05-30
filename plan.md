@@ -516,8 +516,6 @@ Unter dem E-Mail-Formular (Schritt 1) gibt es einen Link **"Neu hier? Jetzt regi
 POST /user/register { email, password, repassword, device_fingerprint, device_name }
 ```
 
-> **Hinweis:** Der Legacy-Flow über `POST /user/login` mit unbekannter E-Mail (Response `status: "register"`) bleibt als Fallback erhalten, solange `/user/check-email` noch nicht live ist.
-
 ### Sicherheits-Checkliste für die Implementierung
 
 | Maßnahme | Begründung |
