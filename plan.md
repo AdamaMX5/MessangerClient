@@ -308,7 +308,7 @@ Discord Dark Theme als Grundlage; alle Werte werden als Tailwind Custom Tokens d
 
 ### Phase 5 — Auth-Seite & Common
 
-14. `LoginPage.tsx` — Discord-ähnliches Login-Formular (dunkel, zentriert), Submit navigiert zu `/`
+14. `LoginPage.tsx` — Discord-ähnliches Login-Formular (dunkel, zentriert); drei States: E-Mail-Eingabe → Passwort (Login) oder Passwort+Repasswort (Registrierung); zusätzlich klassisches Registrierungs-Modal über Link erreichbar; Submit navigiert zu `/`
 15. `Avatar.tsx` / `StatusBadge.tsx` — wiederverwendbare Hilfskomponenten
 
 ### Phase 6 — Feinschliff
@@ -448,14 +448,75 @@ POST /user/logout-all  // invalidiert alle Sessions des Nutzers (JWT-Auth)
 
 Nach dem Logout darf kein Access Token im Speicher verbleiben. Der `HttpOnly`-Cookie wird serverseitig durch Überschreiben mit einem abgelaufenen Cookie gecleart.
 
-### Registrierungs-Flow
+### Login- & Registrierungs-Flow
 
-Der AuthService verwendet einen **zweistufigen Registrierungsprozess**:
+#### Email-first Flow (Standard)
 
-1. `POST /user/login` mit neuer E-Mail → Response `{ status: "register" }`
-2. `POST /user/register` mit `password` + `repassword` → vollständiger Login
+Der AuthService stellt den Endpunkt `POST /user/check-email` bereit (aktuell in Umsetzung, Issues offen). Damit wird die E-Mail-Adresse vorab geprüft, bevor das Passwortfeld überhaupt erscheint.
 
-Das macht eine separate "Registrieren"-Seite überflüssig — die Login-Maske erkennt neue E-Mail-Adressen automatisch und leitet zur Passwortwiederholung.
+```
+Schritt 1 — Nur E-Mail:
+┌─────────────────────────────────┐
+│  Willkommen                     │
+│                                 │
+│  E-Mail: [___________________]  │
+│                                 │
+│  [        Weiter →          ]   │
+│                                 │
+│  Neu hier? → Jetzt registrieren │
+└─────────────────────────────────┘
+
+POST /user/check-email { email }
+→ { status: "login" }    → Schritt 2a
+→ { status: "register" } → Schritt 2b
+
+
+Schritt 2a — Bekannte E-Mail (Login):
+┌─────────────────────────────────┐
+│  max@beispiel.de                │
+│                                 │
+│  Passwort: [________________]   │
+│                                 │
+│  [        Anmelden          ]   │
+└─────────────────────────────────┘
+
+POST /user/login { email, password, device_fingerprint, device_name }
+
+
+Schritt 2b — Unbekannte E-Mail (Registrierung):
+┌─────────────────────────────────┐
+│  neu@beispiel.de                │
+│                                 │
+│  Passwort:           [________] │
+│  Passwort wiederholen:[________]│
+│                                 │
+│  [       Registrieren       ]   │
+└─────────────────────────────────┘
+
+POST /user/register { email, password, repassword, device_fingerprint, device_name }
+```
+
+#### Klassischer Registrierungs-Flow (Fallback-Link)
+
+Unter dem E-Mail-Formular (Schritt 1) gibt es einen Link **"Neu hier? Jetzt registrieren"**. Dieser öffnet ein Modal mit allen drei Feldern auf einmal — für Nutzer, die den klassischen Ablauf gewohnt sind:
+
+```
+┌─────────────────────────────────┐
+│  Konto erstellen                │
+│                                 │
+│  E-Mail:              [_______] │
+│  Passwort:            [_______] │
+│  Passwort wiederholen:[_______] │
+│                                 │
+│  [       Registrieren       ]   │
+│                                 │
+│  Bereits registriert? Anmelden  │
+└─────────────────────────────────┘
+
+POST /user/register { email, password, repassword, device_fingerprint, device_name }
+```
+
+> **Hinweis:** Der Legacy-Flow über `POST /user/login` mit unbekannter E-Mail (Response `status: "register"`) bleibt als Fallback erhalten, solange `/user/check-email` noch nicht live ist.
 
 ### Sicherheits-Checkliste für die Implementierung
 
@@ -567,8 +628,10 @@ Mitglied verlässt / wird entfernt (Channel-Admin muss online sein):
 Nach Abschluss der Implementierung müssen folgende Szenarien fehlerfrei funktionieren:
 
 - `npm run dev` → App öffnet sich unter `localhost:5173`
-- `/login` zeigt das Login-Formular; Klick auf "Anmelden" leitet zu `/` weiter. ein Link zu registrieren zeigt ein klassisches Registrierungs-Modal
-- Wenn beim login nicht max@mustermann.de + beliebiges Passwort eingegeben wurde, dann wird erscheint ein zweites Passwort eingabefeld zur Wiederholung.
+- `/login` zeigt zunächst nur das E-Mail-Feld + "Weiter"-Button
+- Bekannte E-Mail (`max@mustermann.de`) → Passwortfeld erscheint, Button heißt "Anmelden", Klick navigiert zu `/`
+- Unbekannte E-Mail → Passwort- und Repasswort-Feld erscheinen, Button heißt "Registrieren"
+- Link "Neu hier? Jetzt registrieren" öffnet klassisches Modal mit allen drei Feldern gleichzeitig
 - Konversation wechseln → ChatArea aktualisiert sich, Unread-Badge verschwindet
 - Nachricht tippen + Enter → Nachricht erscheint lokal im Verlauf
 - `npm run build` → keine TypeScript-Fehler, kein Konsolenfehler
