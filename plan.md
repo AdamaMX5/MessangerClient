@@ -18,7 +18,7 @@
 8. [Farbpalette](#farbpalette)
 9. [Umsetzungsschritte](#umsetzungsschritte)
 10. [Auth-Architektur & Sicherheit](#auth-architektur--sicherheit)
-11. [Ende-zu-Ende-Verschlüsselung](#ende-zu-ende-verschlüsselung-feature--noch-zu-diskutieren)
+11. [Ende-zu-Ende-Verschlüsselung](#ende-zu-ende-verschlüsselung)
 12. [Verifikation](#verifikation)
 
 ---
@@ -534,9 +534,7 @@ POST /user/register { email, password, repassword, device_fingerprint, device_na
 
 ---
 
-## Ende-zu-Ende-Verschlüsselung *(Feature — noch zu diskutieren)*
-
-> **Status:** Konzept, noch nicht beschlossen. Muss vor Implementierungsbeginn mit dem Team abgestimmt werden (Aufwand, UX, Multi-Device-Anforderungen).
+## Ende-zu-Ende-Verschlüsselung
 
 ### Ansatz: TweetNaCl.js + passwortgeschützter Key-Backup
 
