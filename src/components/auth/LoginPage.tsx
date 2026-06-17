@@ -23,40 +23,66 @@ export default function LoginPage() {
   const [displayName, setDisplayName] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
 
-  function handleEmailSubmit(e: React.FormEvent) {
+  async function handleEmailSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!email.trim()) return
-    const status = checkEmail(email.trim())
-    setStep(status)
     setError('')
+    setBusy(true)
+    try {
+      const status = await checkEmail(email.trim())
+      setStep(status)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unbekannter Fehler')
+    } finally {
+      setBusy(false)
+    }
   }
 
-  function handleLogin(e: React.FormEvent) {
+  async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
     setError('')
-    const ok = login(email, password)
-    if (!ok) { setError('E-Mail oder Passwort ist falsch.'); return }
-    navigate('/')
+    setBusy(true)
+    try {
+      await login(email, password)
+      navigate('/')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'E-Mail oder Passwort ist falsch.')
+    } finally {
+      setBusy(false)
+    }
   }
 
-  function handleRegister(e: React.FormEvent) {
+  async function handleRegister(e: React.FormEvent) {
     e.preventDefault()
     setError('')
     if (password !== repassword) { setError('Die Passwörter stimmen nicht überein.'); return }
     if (password.length < 4) { setError('Passwort muss mindestens 4 Zeichen haben.'); return }
-    const name = displayName.trim() || email.split('@')[0]
-    register(email, password, name)
-    navigate('/')
+    setBusy(true)
+    try {
+      await register(email, password, repassword)
+      navigate('/')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Registrierung fehlgeschlagen.')
+    } finally {
+      setBusy(false)
+    }
   }
 
-  function handleClassicRegister(e: React.FormEvent) {
+  async function handleClassicRegister(e: React.FormEvent) {
     e.preventDefault()
     setError('')
     if (password !== repassword) { setError('Die Passwörter stimmen nicht überein.'); return }
-    const name = displayName.trim() || email.split('@')[0]
-    register(email, password, name)
-    navigate('/')
+    setBusy(true)
+    try {
+      await register(email, password, repassword)
+      navigate('/')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Registrierung fehlgeschlagen.')
+    } finally {
+      setBusy(false)
+    }
   }
 
   const inputCls = 'w-full bg-discord-input border border-white/8 rounded-lg px-4 py-2.5 text-discord-text placeholder-discord-muted text-sm outline-none transition-all duration-150 focus:border-discord-blurple/60 focus:shadow-[0_0_10px_2px_rgba(245,168,37,0.12)]'
@@ -101,7 +127,7 @@ export default function LoginPage() {
             {error && (
               <p className="text-discord-red text-xs bg-discord-red/10 rounded-lg px-3 py-2 border border-discord-red/20">{error}</p>
             )}
-            <button type="submit" className={btnPrimary}>
+            <button type="submit" className={btnPrimary} disabled={busy}>
               Registrieren <ArrowRight size={15} />
             </button>
           </form>
@@ -221,7 +247,7 @@ export default function LoginPage() {
                   />
                 </div>
               </div>
-              <button type="submit" className={btnPrimary}>Weiter <ArrowRight size={15} /></button>
+              <button type="submit" className={btnPrimary} disabled={busy}>Weiter <ArrowRight size={15} /></button>
             </form>
           )}
 
@@ -255,7 +281,7 @@ export default function LoginPage() {
               {error && (
                 <p className="text-discord-red text-xs bg-discord-red/10 rounded-lg px-3 py-2 border border-discord-red/20">{error}</p>
               )}
-              <button type="submit" className={btnPrimary}>Anmelden <ArrowRight size={15} /></button>
+              <button type="submit" className={btnPrimary} disabled={busy}>Anmelden <ArrowRight size={15} /></button>
             </form>
           )}
 
@@ -296,7 +322,7 @@ export default function LoginPage() {
               {error && (
                 <p className="text-discord-red text-xs bg-discord-red/10 rounded-lg px-3 py-2 border border-discord-red/20">{error}</p>
               )}
-              <button type="submit" className={btnPrimary}>Registrieren <ArrowRight size={15} /></button>
+              <button type="submit" className={btnPrimary} disabled={busy}>Registrieren <ArrowRight size={15} /></button>
             </form>
           )}
 

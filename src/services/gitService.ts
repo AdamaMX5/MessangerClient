@@ -1,3 +1,5 @@
+import { getAccessToken } from './tokenStore'
+
 const BASE = import.meta.env.VITE_GIT_SERVICE_URL ?? 'https://git.freischule.info'
 
 export interface GitRepo {
@@ -19,11 +21,10 @@ export interface CreateIssueResult {
 }
 
 function authHeaders(): Record<string, string> {
-  const token = localStorage.getItem('access_token') ?? ''
-  return {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${token}`,
-  }
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const token = getAccessToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+  return headers
 }
 
 async function errorMessage(res: Response, fallback: string): Promise<string> {
