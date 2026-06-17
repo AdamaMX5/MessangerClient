@@ -29,12 +29,16 @@ export default function ChatArea({ messages, currentUserId, getUser }: Props) {
   if (!messages.length) {
     return (
       <div className="flex-1 flex items-center justify-center text-discord-muted text-sm">
-        Noch keine Nachrichten. Starte das Gespräch!
+        <div className="text-center">
+          <div className="w-12 h-12 rounded-full bg-discord-input flex items-center justify-center mx-auto mb-3 opacity-40">
+            <span className="font-display font-black text-xl text-discord-text">?</span>
+          </div>
+          <p>Noch keine Nachrichten. Starte das Gespräch!</p>
+        </div>
       </div>
     )
   }
 
-  // Group by date and compute avatar visibility
   let lastDate = ''
   let lastSenderId = ''
 
@@ -51,13 +55,15 @@ export default function ChatArea({ messages, currentUserId, getUser }: Props) {
         return (
           <div key={msg.id}>
             {showDate && (
-              <div className="flex items-center gap-3 px-4 py-3">
-                <div className="flex-1 h-px bg-white/10" />
-                <span className="text-xs font-medium text-discord-muted">{formatDate(msg.createdAt)}</span>
-                <div className="flex-1 h-px bg-white/10" />
+              <div className="flex items-center gap-3 px-4 py-4">
+                <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.06)' }} />
+                <span className="text-[11px] font-bold text-discord-muted uppercase tracking-widest px-1">
+                  {formatDate(msg.createdAt)}
+                </span>
+                <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.06)' }} />
               </div>
             )}
-            {showAvatar && i > 0 && !showDate && <div className="h-1" />}
+            {showAvatar && i > 0 && !showDate && <div className="h-1.5" />}
             <MessageBubble
               message={msg}
               author={getUser(msg.senderId)}

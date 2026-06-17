@@ -631,3 +631,32 @@ Nach Abschluss der Implementierung müssen folgende Szenarien fehlerfrei funktio
 - Konversation wechseln → ChatArea aktualisiert sich, Unread-Badge verschwindet
 - Nachricht tippen + Enter → Nachricht erscheint lokal im Verlauf
 - `npm run build` → keine TypeScript-Fehler, kein Konsolenfehler
+
+
+fangen wir mit der Implementierung an. Programmiere das gesamte Mockup. Erstelle die Mockdaten. Mache neben dem         
+direckMessage Bereich auch zwei Spaces - eins für das Interne Büro mit den Mitarbeitern und Abteilungen und Projekten    
+und den zweiten space für die Kundengewinnung/Besuch von Kunden und Zulieferen/Messestände. Versuche auch die          
+unterschiedlichen Chaneltypen mit Beispieldaten zu bestücken. Bevor du anfängst, hast du noch Ideen oder fragen?    
+  
+● Gute Idee, kurz klären bevor ich anfange — vier konkrete Punkte:
+
+  1. Scaffold-Ort: Der Repo-Root enthält bereits plan.md, CLAUDE.md und die Screenshots. Ich würde Vite direkt im Root
+  initialisieren (npm create vite@latest . -- --template react-ts), sodass src/, index.html etc. daneben liegen. Passt
+  das, oder soll alles in einen Unterordner?
+  2. Login-Mockup: Da kein echter API-Call stattfindet — soll max@mustermann.de die hardcodierte "bekannte" E-Mail sein,
+   die den Passwort-Schritt triggert, und jede andere E-Mail den Registrierungspfad? Oder soll der Login direkt zur App
+  durchleiten ohne die E-Mail-Prüfung zu simulieren?
+  3. Forum-Channel: Das ist ein anderer UI-Typ als ein normaler Chat — eher eine Liste von Threads/Posts mit Titel. Soll
+   ich dafür eine eigene Ansicht bauen, oder reicht für das Mockup ein normaler Chat-Feed mit forum-ähnlichen
+  Beispielnachrichten?
+  4. livekit-client: Dependency jetzt schon mit installieren (ohne Funktion) als Platzhalter, oder erstmal weglassen bis
+   die Audio/Video-Integration konkret wird?
+
+✻ Worked for 34s
+
+> 1. passt, möchte ich auch so haben und der Plan bleibt dort. Du kannst gern die Claude.md mit hilfreichen Inhalten      
+füllen. 2. max@mustermann.de mit Passwort hallo soll die bekannt Emailadresse in den Mockupdaten sein und alle          
+anderen Email adressen soll die Registrierung auslösen und in die Mockdaten hinzugeschrieben werden. 3. Baue den        
+weiteren UI Typen, damit wir die Erweiterbarkeit und flexibilität sybolisieren können. 4. Livekit-client lassen wir     
+weg, bis wir die Anbindung an das Backend machen. Aber baue schonmal die Telefon- und Kamera-Icons zum Anruf starten    
+in die passenden Chats, Gruppen und Meetingräumen ein.

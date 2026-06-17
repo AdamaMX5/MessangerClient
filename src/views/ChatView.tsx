@@ -15,10 +15,24 @@ import StageView from '../components/channels/StageView'
 
 function EmptyState() {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center text-center px-8 gap-3">
-      <div className="w-20 h-20 bg-discord-blurple rounded-3xl flex items-center justify-center text-4xl font-black text-white mb-2">M</div>
-      <h2 className="text-2xl font-bold text-white">Willkommen im MessengerClient</h2>
-      <p className="text-discord-muted max-w-sm">Wähle links einen Channel oder eine Konversation, um zu starten.</p>
+    <div className="flex-1 flex flex-col items-center justify-center text-center px-8 gap-4">
+      {/* Decorative rings */}
+      <div className="relative flex items-center justify-center mb-2">
+        <div className="absolute w-32 h-32 rounded-full" style={{ border: '1px solid rgba(245,168,37,0.12)' }} />
+        <div className="absolute w-48 h-48 rounded-full" style={{ border: '1px solid rgba(245,168,37,0.06)' }} />
+        <div className="absolute w-64 h-64 rounded-full" style={{ border: '1px solid rgba(245,168,37,0.03)' }} />
+        <div className="w-16 h-16 rounded-2xl flex items-center justify-center"
+             style={{ background: '#F5A825', boxShadow: '0 0 30px 6px rgba(245,168,37,0.2)' }}>
+          <span className="font-display font-black text-3xl" style={{ color: '#05060E' }}>M</span>
+        </div>
+      </div>
+
+      <div>
+        <h2 className="font-display text-2xl font-bold text-white mb-2">MessengerClient</h2>
+        <p className="text-discord-muted text-sm max-w-xs leading-relaxed">
+          Wähle links einen Channel oder eine Konversation, um zu starten.
+        </p>
+      </div>
     </div>
   )
 }
@@ -28,7 +42,6 @@ function MainContent() {
           getChannel, getConversation, currentUser, getUser,
           sendDM, sendChannelMessage } = useApp()
 
-  // ─── DM conversation ──────────────────────────────────────────────────────
   if (!activeSpaceId && activeConversationId) {
     const conv = getConversation(activeConversationId)
     if (!conv || !currentUser) return <EmptyState />
@@ -43,7 +56,6 @@ function MainContent() {
     )
   }
 
-  // ─── Channel ──────────────────────────────────────────────────────────────
   if (activeChannelId) {
     const ch = getChannel(activeChannelId)
     if (!ch || !currentUser) return <EmptyState />
@@ -72,7 +84,7 @@ function MainContent() {
 }
 
 export default function ChatView() {
-  const { showUserList, activeSpaceId, activeConversationId, activeChannelId } = useApp()
+  const { showUserList, activeConversationId, activeChannelId } = useApp()
   const hasActive = !!(activeConversationId || activeChannelId)
 
   return (

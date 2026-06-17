@@ -8,40 +8,46 @@ export default function OnBoardingView({ channel }: { channel: Channel }) {
 
   return (
     <div className="flex-1 overflow-y-auto px-6 py-6">
-      <div className="flex items-center gap-2 mb-2">
-        <Rocket size={22} className="text-discord-blurple" />
-        <h2 className="text-xl font-bold text-white">{channel.name}</h2>
+      <div className="flex items-center gap-2.5 mb-2">
+        <Rocket size={20} className="text-discord-blurple flex-shrink-0" />
+        <h2 className="font-display font-bold text-xl text-white">{channel.name}</h2>
       </div>
       {channel.description && <p className="text-discord-muted text-sm mb-6">{channel.description}</p>}
 
-      {/* Progress bar */}
-      <div className="mb-6 max-w-md">
-        <div className="flex justify-between text-xs text-discord-muted mb-1">
+      {/* Progress */}
+      <div className="mb-7 max-w-md">
+        <div className="flex justify-between text-xs text-discord-muted mb-2">
           <span>{done} von {steps.length} abgeschlossen</span>
-          <span>{pct}%</span>
+          <span className="font-bold text-discord-blurple">{pct}%</span>
         </div>
-        <div className="h-2 bg-discord-input rounded-full overflow-hidden">
-          <div className="h-full bg-discord-blurple transition-all" style={{ width: `${pct}%` }} />
+        <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
+          <div
+            className="h-full rounded-full transition-all duration-500"
+            style={{ width: `${pct}%`, background: 'linear-gradient(to right, #F5A825, #F5C842)' }}
+          />
         </div>
       </div>
 
       {/* Steps */}
-      <div className="space-y-3 max-w-lg">
+      <div className="space-y-2.5 max-w-lg">
         {steps.map((step, i) => (
           <div
             key={step.id}
-            className={`flex items-start gap-3 p-4 rounded-lg border transition-colors
-              ${step.completed ? 'bg-discord-green/5 border-discord-green/20' : 'bg-discord-channels border-white/5'}`}
+            className="flex items-start gap-3 p-4 rounded-xl border transition-all duration-150"
+            style={{
+              background: step.completed ? 'rgba(52,212,155,0.04)' : '#0A0D1D',
+              border: step.completed ? '1px solid rgba(52,212,155,0.15)' : '1px solid rgba(255,255,255,0.05)',
+            }}
           >
             <div className="flex-shrink-0 mt-0.5">
               {step.completed
-                ? <CheckCircle2 size={20} className="text-discord-green" />
-                : <Circle size={20} className="text-discord-muted" />
+                ? <CheckCircle2 size={19} className="text-discord-green" />
+                : <Circle size={19} className="text-discord-muted" />
               }
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-discord-muted">Schritt {i + 1}</span>
+              <div className="mb-0.5">
+                <span className="text-[10px] font-bold text-discord-muted uppercase tracking-widest">Schritt {i + 1}</span>
               </div>
               <h3 className={`text-sm font-semibold ${step.completed ? 'line-through text-discord-muted' : 'text-white'}`}>
                 {step.title}

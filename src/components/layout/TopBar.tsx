@@ -4,14 +4,24 @@ import { useApp } from '../../store/AppContext'
 import type { ChannelType } from '../../types'
 
 const CHANNEL_ICON: Record<ChannelType, React.ReactNode> = {
-  text:         <Hash size={20} className="text-discord-muted" />,
-  announcement: <Megaphone size={20} className="text-discord-muted" />,
-  forum:        <BookOpen size={20} className="text-discord-muted" />,
-  faq:          <HelpCircle size={20} className="text-discord-muted" />,
-  onboarding:   <Rocket size={20} className="text-discord-muted" />,
-  voice:        <Volume2 size={20} className="text-discord-muted" />,
-  video:        <Video size={20} className="text-discord-muted" />,
-  stage:        <Presentation size={20} className="text-discord-muted" />,
+  text:         <Hash size={18} className="text-discord-muted" />,
+  announcement: <Megaphone size={18} className="text-discord-muted" />,
+  forum:        <BookOpen size={18} className="text-discord-muted" />,
+  faq:          <HelpCircle size={18} className="text-discord-muted" />,
+  onboarding:   <Rocket size={18} className="text-discord-muted" />,
+  voice:        <Volume2 size={18} className="text-discord-muted" />,
+  video:        <Video size={18} className="text-discord-muted" />,
+  stage:        <Presentation size={18} className="text-discord-muted" />,
+}
+
+const TYPE_LABEL: Partial<Record<ChannelType, string>> = {
+  announcement: 'Ankündigung',
+  forum:        'Forum',
+  faq:          'FAQ',
+  onboarding:   'Onboarding',
+  voice:        'Sprachraum',
+  video:        'Videoraum',
+  stage:        'Bühne',
 }
 
 export default function TopBar() {
@@ -19,7 +29,14 @@ export default function TopBar() {
           getChannel, getConversation, users, currentUser,
           showUserList, toggleUserList } = useApp()
 
-  const iconBtn = 'text-discord-muted hover:text-discord-text transition-colors cursor-pointer'
+  const iconBtn = 'w-8 h-8 rounded-lg flex items-center justify-center text-discord-muted hover:text-discord-text hover:bg-discord-hover transition-all duration-150 cursor-pointer'
+
+  const barBase = 'h-12 flex items-center px-4 gap-3 flex-shrink-0'
+  const barStyle: React.CSSProperties = {
+    background: '#070919',
+    borderBottom: '1px solid rgba(255,255,255,0.06)',
+    boxShadow: '0 1px 0 rgba(0,0,0,0.4)',
+  }
 
   // ─── DM TopBar ───────────────────────────────────────────────────────────────
   if (!activeSpaceId && activeConversationId) {
@@ -30,17 +47,20 @@ export default function TopBar() {
     const name = conv.isGroup ? conv.name ?? 'Gruppe' : (other?.displayName ?? 'Chat')
 
     return (
-      <header className="h-12 bg-discord-chat border-b border-black/20 flex items-center px-4 gap-3 flex-shrink-0 shadow-sm">
+      <header className={barBase} style={barStyle}>
         <div className="flex items-center gap-2 flex-1 min-w-0">
-          <span className="text-discord-muted">@</span>
-          <span className="font-semibold text-white truncate">{name}</span>
+          <span className="text-discord-blurple font-bold text-base">@</span>
+          <span className="font-display font-bold text-white text-sm truncate">{name}</span>
         </div>
-        <div className="flex items-center gap-4">
-          <span title="Anruf starten"><Phone size={20} className={iconBtn} /></span>
-          <span title="Videoanruf starten"><VideoIcon size={20} className={iconBtn} /></span>
-          <span title="Suchen"><Search size={20} className={iconBtn} /></span>
-          <button onClick={toggleUserList} title="Mitglieder">
-            <Users size={20} className={`${iconBtn} ${showUserList ? 'text-white' : ''}`} />
+        <div className="flex items-center gap-1">
+          <span className={iconBtn} title="Anruf starten"><Phone size={17} /></span>
+          <span className={iconBtn} title="Videoanruf"><VideoIcon size={17} /></span>
+          <span className={iconBtn} title="Suchen"><Search size={17} /></span>
+          <button
+            className={`${iconBtn} ${showUserList ? 'text-discord-blurple bg-discord-active' : ''}`}
+            onClick={toggleUserList} title="Mitglieder"
+          >
+            <Users size={17} />
           </button>
         </div>
       </header>
@@ -52,28 +72,37 @@ export default function TopBar() {
     const ch = getChannel(activeChannelId)
     if (!ch) return null
     const showCallIcons = ch.type === 'voice' || ch.type === 'video' || ch.type === 'stage'
+    const typeLabel = TYPE_LABEL[ch.type]
 
     return (
-      <header className="h-12 bg-discord-chat border-b border-black/20 flex items-center px-4 gap-3 flex-shrink-0 shadow-sm">
+      <header className={barBase} style={barStyle}>
         <div className="flex items-center gap-2 flex-1 min-w-0">
           {CHANNEL_ICON[ch.type]}
-          <span className="font-semibold text-white truncate">{ch.name}</span>
-          {ch.isEncrypted && <span title="E2E verschlüsselt"><Lock size={13} className="text-discord-muted flex-shrink-0" /></span>}
+          <span className="font-display font-bold text-white text-sm truncate">{ch.name}</span>
+          {ch.isEncrypted && <span title="E2E verschlüsselt"><Lock size={11} className="text-discord-muted flex-shrink-0" /></span>}
+          {typeLabel && (
+            <span className="hidden md:inline text-[10px] font-bold uppercase tracking-widest text-discord-muted bg-discord-hover px-2 py-0.5 rounded-md flex-shrink-0">
+              {typeLabel}
+            </span>
+          )}
           {ch.description && (
             <>
-              <div className="w-px h-4 bg-discord-muted/30 mx-1" />
-              <span className="text-discord-muted text-sm truncate hidden md:block">{ch.description}</span>
+              <div className="w-px h-3.5 bg-discord-muted/30 mx-1 flex-shrink-0 hidden md:block" />
+              <span className="text-discord-muted text-xs truncate hidden md:block">{ch.description}</span>
             </>
           )}
         </div>
-        <div className="flex items-center gap-4">
-          {showCallIcons && <span title="Beitreten"><Phone size={20} className={iconBtn} /></span>}
+        <div className="flex items-center gap-1">
+          {showCallIcons && <span className={iconBtn} title="Beitreten"><Phone size={17} /></span>}
           {(ch.type === 'video' || ch.type === 'stage') && (
-            <span title="Mit Video beitreten"><VideoIcon size={20} className={iconBtn} /></span>
+            <span className={iconBtn} title="Mit Video"><VideoIcon size={17} /></span>
           )}
-          <span title="Suchen"><Search size={20} className={iconBtn} /></span>
-          <button onClick={toggleUserList} title="Mitglieder">
-            <Users size={20} className={`${iconBtn} ${showUserList ? 'text-white' : ''}`} />
+          <span className={iconBtn} title="Suchen"><Search size={17} /></span>
+          <button
+            className={`${iconBtn} ${showUserList ? 'text-discord-blurple bg-discord-active' : ''}`}
+            onClick={toggleUserList} title="Mitglieder"
+          >
+            <Users size={17} />
           </button>
         </div>
       </header>
@@ -82,7 +111,7 @@ export default function TopBar() {
 
   // ─── Empty state ─────────────────────────────────────────────────────────────
   return (
-    <header className="h-12 bg-discord-chat border-b border-black/20 flex items-center px-4 flex-shrink-0 shadow-sm">
+    <header className={barBase} style={barStyle}>
       <span className="text-discord-muted text-sm">Wähle einen Channel oder eine Konversation</span>
     </header>
   )
