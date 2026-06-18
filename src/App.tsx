@@ -19,12 +19,21 @@ function AppRoutes() {
   )
 }
 
+function VersionBadge() {
+  return (
+    <span className="fixed bottom-1 right-2 text-[10px] text-discord-muted/60 select-none pointer-events-none z-50">
+      {__GIT_HASH__}
+    </span>
+  )
+}
+
 export default function App() {
   return (
     <AppProvider>
       <BrowserRouter>
         <AppRoutes />
       </BrowserRouter>
+      <VersionBadge />
     </AppProvider>
   )
 }
