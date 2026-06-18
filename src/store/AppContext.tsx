@@ -1,15 +1,19 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react'
 import type { User, UserRole, UserStatus, Space, Conversation, Channel, Message } from '../types'
 import {
-  MOCK_USERS, MOCK_SPACES, MOCK_CONVERSATIONS,
+  MOCK_USERS, MOCK_SPACES,
   LOGGED_IN_USER_ID,
   buildMessage,
 } from '../data/mockData'
 import { authService } from '../services/authService'
 import { profileService } from '../services/profileService'
+import { messageService } from '../services/messageService'
 import { clearAccessToken } from '../services/tokenStore'
+import { deriveConversations, toUiMessage, upsertConversationMessage } from './dmHelpers'
 
 const REFRESH_INTERVAL_MS = 10 * 60 * 1000
+const CONVERSATION_LIST_POLL_MS = 15 * 1000
+const ACTIVE_CONVERSATION_POLL_MS = 10 * 1000
 
 interface JwtPayload {
   sub?: string
@@ -72,7 +76,7 @@ interface AppContextType {
   toggleUserList: () => void
 
   // Actions
-  sendDM: (conversationId: string, body: string) => void
+  sendDM: (conversationId: string, body: string) => Promise<void>
   sendChannelMessage: (channelId: string, body: string) => void
   joinVoiceChannel: (channelId: string) => void
   leaveVoiceChannel: (channelId: string) => void
@@ -88,9 +92,13 @@ const AppContext = createContext<AppContextType | null>(null)
 export function AppProvider({ children }: { children: ReactNode }) {
   const [users] = useState<User[]>(MOCK_USERS)
   const [spaces, setSpaces] = useState<Space[]>(MOCK_SPACES)
-  const [conversations, setConversations] = useState<Conversation[]>(MOCK_CONVERSATIONS)
+  const [conversations, setConversations] = useState<Conversation[]>([])
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [isAuthLoading, setIsAuthLoading] = useState(true)
+
+  // Cache of resolved DM-partner profiles (userId → display data), so the
+  // sidebar can show names/avatars for users outside the static demo list.
+  const partnerProfiles = useRef(new Map<string, { name: string; avatarUrl?: string }>())
 
   const [activeSpaceId, setActiveSpaceId] = useState<string | null>(null)
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null)
@@ -131,6 +139,97 @@ export function AppProvider({ children }: { children: ReactNode }) {
       loggingOutRef.current = false
     }
   }, [])
+
+  // Resolve display data (name/avatar) for any partner ids we have not cached
+  // yet, then stamp it onto the matching conversations. One profile fetch per
+  // unknown user; failures fall back to whatever the UI already shows.
+  const enrichPartners = useCallback(async (partnerIds: string[]) => {
+    const unknown = partnerIds.filter(id => !partnerProfiles.current.has(id))
+    await Promise.all(unknown.map(async id => {
+      try {
+        const p = await profileService.globalProfile(id)
+        partnerProfiles.current.set(id, { name: p.displayName, avatarUrl: p.avatar || undefined })
+      } catch {
+        partnerProfiles.current.set(id, { name: id })
+      }
+    }))
+    setConversations(prev => prev.map(c => {
+      const partner = partnerProfiles.current.get(c.id)
+      return partner ? { ...c, partnerName: partner.name, partnerAvatarUrl: partner.avatarUrl } : c
+    }))
+  }, [])
+
+  // Rebuild the conversation list from inbox + sent, preserving the locally
+  // loaded full message history of the currently active conversation.
+  const refreshConversationList = useCallback(async (userId: string, activeId: string | null) => {
+    const [inbox, sent] = await Promise.all([
+      messageService.getInbox(),
+      messageService.getSent(),
+    ])
+    const derived = deriveConversations(inbox, sent, userId)
+    setConversations(prev => derived.map(d => {
+      const existing = prev.find(c => c.id === d.id)
+      const partner = partnerProfiles.current.get(d.id)
+      const keepHistory = existing && d.id === activeId && existing.messages.length > 1
+      return {
+        ...d,
+        messages: keepHistory ? existing.messages : d.messages,
+        unreadCount: d.id === activeId ? 0 : d.unreadCount,
+        partnerName: partner?.name,
+        partnerAvatarUrl: partner?.avatarUrl,
+      }
+    }))
+    void enrichPartners(derived.map(d => d.id))
+  }, [enrichPartners])
+
+  // Initial load + periodic refresh of the conversation list while logged in.
+  useEffect(() => {
+    if (!currentUser) {
+      setConversations([])
+      partnerProfiles.current.clear()
+      return
+    }
+    const userId = currentUser.id
+    void refreshConversationList(userId, activeConversationId)
+    const id = setInterval(() => {
+      void refreshConversationList(userId, activeConversationId)
+    }, CONVERSATION_LIST_POLL_MS)
+    return () => clearInterval(id)
+    // activeConversationId intentionally excluded: list polling should not
+    // restart on every conversation switch; the active id is read via closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser, refreshConversationList])
+
+  // Load + poll the full history of the active conversation.
+  useEffect(() => {
+    if (!currentUser || !activeConversationId) return
+    const partnerId = activeConversationId
+    let cancelled = false
+
+    const load = async () => {
+      try {
+        const msgs = await messageService.getConversation(partnerId)
+        if (cancelled) return
+        const uiMsgs = msgs.map(m => toUiMessage(m, partnerId))
+        setConversations(prev => prev.map(c =>
+          c.id === partnerId ? { ...c, messages: uiMsgs, isLoading: false } : c
+        ))
+      } catch {
+        if (!cancelled) {
+          setConversations(prev => prev.map(c =>
+            c.id === partnerId ? { ...c, isLoading: false } : c
+          ))
+        }
+      }
+    }
+
+    setConversations(prev => prev.map(c =>
+      c.id === partnerId ? { ...c, isLoading: c.messages.length <= 1 } : c
+    ))
+    void load()
+    const id = setInterval(() => void load(), ACTIVE_CONVERSATION_POLL_MS)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [currentUser, activeConversationId])
 
   // Silent session restore on mount: if a refresh cookie exists, this succeeds
   // and rebuilds currentUser; otherwise it fails quietly and the LoginPage shows.
@@ -173,18 +272,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setConversations(prev =>
       prev.map(c => c.id === id ? { ...c, unreadCount: 0 } : c)
     )
+    // Persist read state server-side; id is the sender/partner user id.
+    messageService.markAllRead(id).catch(() => { /* will retry on next open */ })
   }, [])
 
   const toggleUserList = useCallback(() => setShowUserList(v => !v), [])
 
-  const sendDM = useCallback((conversationId: string, body: string) => {
+  // conversationId == the partner user id in the 1:1 DM model.
+  const sendDM = useCallback(async (conversationId: string, body: string) => {
     if (!currentUser) return
-    const msg = buildMessage(currentUser.id, conversationId, body)
-    setConversations(prev => prev.map(c =>
-      c.id === conversationId
-        ? { ...c, messages: [...c.messages, msg], lastMessageAt: msg.createdAt }
-        : c
-    ))
+    const optimistic = buildMessage(currentUser.id, conversationId, body)
+    setConversations(prev => upsertConversationMessage(prev, conversationId, currentUser.id, optimistic))
+
+    try {
+      const sent = await messageService.send(conversationId, body)
+      const real = toUiMessage(sent, conversationId)
+      setConversations(prev => prev.map(c => c.id === conversationId
+        ? { ...c, messages: c.messages.map(m => m.id === optimistic.id ? real : m), lastMessageAt: real.createdAt }
+        : c))
+    } catch {
+      // Roll back the optimistic message on failure.
+      setConversations(prev => prev.map(c => c.id === conversationId
+        ? { ...c, messages: c.messages.filter(m => m.id !== optimistic.id) }
+        : c))
+    }
   }, [currentUser])
 
   const sendChannelMessage = useCallback((channelId: string, body: string) => {

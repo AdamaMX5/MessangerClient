@@ -22,7 +22,11 @@ function ConversationItem({ conv, active, onClick }: {
   const otherId = conv.participantIds.find(id => id !== currentUser?.id)
   const other = otherId ? users.find(u => u.id === otherId) : undefined
 
-  const name = conv.isGroup ? conv.name ?? 'Gruppe' : (other?.displayName ?? 'Unbekannt')
+  // Prefer the static demo user, then the ProfileService-resolved partner data.
+  const name = conv.isGroup
+    ? conv.name ?? 'Gruppe'
+    : (other?.displayName ?? conv.partnerName ?? 'Unbekannt')
+  const partnerAvatar = other?.avatarUrl ?? conv.partnerAvatarUrl
   const lastMsg = conv.messages.at(-1)
   const preview = lastMsg ? lastMsg.body.slice(0, 32) + (lastMsg.body.length > 32 ? '…' : '') : ''
 
@@ -42,7 +46,13 @@ function ConversationItem({ conv, active, onClick }: {
         </div>
       ) : other ? (
         <Avatar user={other} size={32} />
-      ) : null}
+      ) : (
+        <div className="w-8 h-8 rounded-full bg-discord-input flex-shrink-0 overflow-hidden flex items-center justify-center text-xs font-bold text-discord-text">
+          {partnerAvatar
+            ? <img src={partnerAvatar} alt={name} className="w-full h-full object-cover" />
+            : name.slice(0, 2).toUpperCase()}
+        </div>
+      )}
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-1">
@@ -100,7 +110,9 @@ export default function ChannelSidebar() {
               <Plus size={13} />
             </button>
           </div>
-          {conversations.map(conv => (
+          {/* TODO: group DMs (conv.isGroup) are hidden until MessageService
+              gains group-conversation support; only 1:1 DMs are real for now. */}
+          {conversations.filter(conv => !conv.isGroup).map(conv => (
             <ConversationItem
               key={conv.id}
               conv={conv}

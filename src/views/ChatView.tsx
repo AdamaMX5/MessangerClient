@@ -47,10 +47,12 @@ function MainContent() {
     if (!conv || !currentUser) return <EmptyState />
     return (
       <>
-        <ChatArea messages={conv.messages} currentUserId={currentUser.id} getUser={getUser} />
+        {conv.isLoading
+          ? <div className="flex-1 flex items-center justify-center text-discord-muted text-sm">Lädt Nachrichten…</div>
+          : <ChatArea messages={conv.messages} currentUserId={currentUser.id} getUser={getUser} />}
         <MessageInput
           placeholder="Nachricht schreiben…"
-          onSend={body => sendDM(activeConversationId, body)}
+          onSend={body => { void sendDM(activeConversationId, body) }}
         />
       </>
     )

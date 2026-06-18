@@ -44,7 +44,9 @@ export default function TopBar() {
     if (!conv) return null
     const otherId = conv.participantIds.find(id => id !== currentUser?.id)
     const other = otherId ? users.find(u => u.id === otherId) : undefined
-    const name = conv.isGroup ? conv.name ?? 'Gruppe' : (other?.displayName ?? 'Chat')
+    const name = conv.isGroup
+      ? conv.name ?? 'Gruppe'
+      : (other?.displayName ?? conv.partnerName ?? 'Chat')
 
     return (
       <header className={barBase} style={barStyle}>

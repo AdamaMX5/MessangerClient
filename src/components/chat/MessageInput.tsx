@@ -3,7 +3,7 @@ import { Send, Smile, Paperclip } from 'lucide-react'
 
 interface Props {
   placeholder?: string
-  onSend: (body: string) => void
+  onSend: (body: string) => void | Promise<void>
   disabled?: boolean
 }
 

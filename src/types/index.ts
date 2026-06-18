@@ -85,4 +85,11 @@ export interface Conversation {
   isGroup: boolean;
   name?: string;
   lastMessageAt: string;
+  // Display data for the DM partner, resolved from ProfileService for users
+  // that are not part of the static demo user list. Optional so mock group
+  // conversations remain valid.
+  partnerName?: string;
+  partnerAvatarUrl?: string;
+  // True while the active conversation's full history is being (re)loaded.
+  isLoading?: boolean;
 }
