@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { MessageSquare, LogOut, Bug, UserCog } from 'lucide-react'
+import { MessageSquare, LogOut, Lightbulb, UserCog } from 'lucide-react'
 import { useApp } from '../../store/AppContext'
 import Avatar from '../common/Avatar'
 import CreateIssueModal from '../modals/CreateIssueModal'
@@ -90,7 +90,7 @@ export default function AppSidebar() {
             title="Fehler/Verbesserung melden"
             onClick={() => setShowCreateIssueModal(true)}
           >
-            <Bug size={17} />
+            <Lightbulb size={17} />
           </button>
         )}
         <button
