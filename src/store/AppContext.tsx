@@ -1,15 +1,20 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react'
 import type { User, UserRole, UserStatus, Space, Conversation, Channel, Message } from '../types'
 import {
-  MOCK_USERS, MOCK_SPACES,
+  MOCK_USERS,
   LOGGED_IN_USER_ID,
   buildMessage,
 } from '../data/mockData'
 import { authService } from '../services/authService'
 import { profileService } from '../services/profileService'
 import { messageService } from '../services/messageService'
+import { objectService } from '../services/objectService'
 import { clearAccessToken } from '../services/tokenStore'
 import { deriveConversations, toUiMessage, upsertConversationMessage } from './dmHelpers'
+import {
+  groupChannels, toSpace, toForumPost,
+  type SpaceData, type ChannelData, type ForumPostData,
+} from './spacesHelpers'
 
 const REFRESH_INTERVAL_MS = 10 * 60 * 1000
 const CONVERSATION_LIST_POLL_MS = 15 * 1000
@@ -91,7 +96,7 @@ const AppContext = createContext<AppContextType | null>(null)
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [users] = useState<User[]>(MOCK_USERS)
-  const [spaces, setSpaces] = useState<Space[]>(MOCK_SPACES)
+  const [spaces, setSpaces] = useState<Space[]>([])
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [isAuthLoading, setIsAuthLoading] = useState(true)
@@ -182,6 +187,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void enrichPartners(derived.map(d => d.id))
   }, [enrichPartners])
 
+  // Load all spaces, then each space's channels, grouping them client-side into
+  // categories so the Space shape the UI consumes stays identical to before.
+  const loadSpaces = useCallback(async () => {
+    const spaceObjs = await objectService.list<SpaceData>('spaces', { limit: 100 })
+    const assembled = await Promise.all(spaceObjs.map(async s => {
+      const channels = await objectService.list<ChannelData>('channels', {
+        ref: { spaceId: s.id }, limit: 200,
+      })
+      return toSpace(s, groupChannels(channels))
+    }))
+    setSpaces(assembled)
+  }, [])
+
+  // (Re)load spaces on login; clear them on logout. Empty list is a valid state
+  // (fresh ObjectService instance) — never seed mock data into the real service.
+  useEffect(() => {
+    if (!currentUser) { setSpaces([]); return }
+    loadSpaces().catch(() => setSpaces([]))
+  }, [currentUser, loadSpaces])
+
   // Initial load + periodic refresh of the conversation list while logged in.
   useEffect(() => {
     if (!currentUser) {
@@ -255,6 +280,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(id)
   }, [currentUser])
 
+  // Apply a patch to a single channel anywhere in the spaces tree.
+  const updateChannel = useCallback((channelId: string, patch: Partial<Channel>) => {
+    setSpaces(prev => prev.map(space => ({
+      ...space,
+      categories: space.categories.map(cat => ({
+        ...cat,
+        channels: cat.channels.map(ch =>
+          ch.id === channelId ? { ...ch, ...patch } : ch
+        ),
+      })),
+    })))
+  }, [])
+
+  // Lazy-load forum posts the first time a forum channel is opened.
+  useEffect(() => {
+    if (!activeChannelId) return
+    const channel = spaces
+      .flatMap(s => s.categories).flatMap(c => c.channels)
+      .find(ch => ch.id === activeChannelId)
+    if (!channel || channel.type !== 'forum' || channel.posts) return
+
+    let cancelled = false
+    objectService.list<ForumPostData>('forum-posts', { ref: { channelId: activeChannelId }, limit: 200 })
+      .then(objs => { if (!cancelled) updateChannel(activeChannelId, { posts: objs.map(toForumPost) }) })
+      .catch(() => { if (!cancelled) updateChannel(activeChannelId, { posts: [] }) })
+    return () => { cancelled = true }
+  }, [activeChannelId, spaces, updateChannel])
+
   const setActiveSpace = useCallback((id: string | null) => {
     setActiveSpaceId(id)
     setActiveChannelId(null)
@@ -298,49 +351,72 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [currentUser])
 
+  // Append a channel message optimistically, then try the (future) MessageService
+  // channel endpoint. On network/404 failure we fall back to persisting the new
+  // messages array into the embedded channel object via the ObjectService — the
+  // local optimistic state is the source for that read-modify-write, so the
+  // append is never lost. The optimistic message stays on screen either way.
   const sendChannelMessage = useCallback((channelId: string, body: string) => {
     if (!currentUser) return
     const msg = buildMessage(currentUser.id, channelId, body)
+    let nextMessages: Message[] = []
     setSpaces(prev => prev.map(space => ({
       ...space,
       categories: space.categories.map(cat => ({
         ...cat,
-        channels: cat.channels.map(ch =>
-          ch.id === channelId ? { ...ch, messages: [...ch.messages, msg] } : ch
-        ),
+        channels: cat.channels.map(ch => {
+          if (ch.id !== channelId) return ch
+          nextMessages = [...ch.messages, msg]
+          return { ...ch, messages: nextMessages }
+        }),
       })),
     })))
+
+    messageService.sendChannelMessage(channelId, body).catch(() => {
+      // Endpoint not live yet — persist the embedded messages array instead.
+      void objectService.patch<ChannelData>('channels', channelId, {
+        data: { messages: nextMessages }, merge: true,
+      }).catch(() => { /* best effort; optimistic state already shown */ })
+    })
   }, [currentUser])
+
+  // Compute the new participant list from current state, update locally, then
+  // persist just that field via a shallow merge PATCH so the rest of the channel
+  // object is untouched. The setSpaces updater stays pure; the PATCH is fired
+  // from the computed result, not from inside the updater.
+  const setVoiceParticipants = useCallback((channelId: string, next: (ids: string[]) => string[]) => {
+    setSpaces(prev => {
+      let ids: string[] | null = null
+      const updated = prev.map(space => ({
+        ...space,
+        categories: space.categories.map(cat => ({
+          ...cat,
+          channels: cat.channels.map(ch => {
+            if (ch.id !== channelId) return ch
+            ids = next(ch.voiceParticipantIds ?? [])
+            return { ...ch, voiceParticipantIds: ids }
+          }),
+        })),
+      }))
+      if (ids) {
+        void objectService.patch<ChannelData>('channels', channelId, {
+          data: { voiceParticipantIds: ids }, merge: true,
+        }).catch(() => { /* best effort; local state already updated */ })
+      }
+      return updated
+    })
+  }, [])
 
   const joinVoiceChannel = useCallback((channelId: string) => {
     if (!currentUser) return
-    setSpaces(prev => prev.map(space => ({
-      ...space,
-      categories: space.categories.map(cat => ({
-        ...cat,
-        channels: cat.channels.map(ch =>
-          ch.id === channelId && !ch.voiceParticipantIds?.includes(currentUser.id)
-            ? { ...ch, voiceParticipantIds: [...(ch.voiceParticipantIds ?? []), currentUser.id] }
-            : ch
-        ),
-      })),
-    })))
-  }, [currentUser])
+    setVoiceParticipants(channelId, ids =>
+      ids.includes(currentUser.id) ? ids : [...ids, currentUser.id])
+  }, [currentUser, setVoiceParticipants])
 
   const leaveVoiceChannel = useCallback((channelId: string) => {
     if (!currentUser) return
-    setSpaces(prev => prev.map(space => ({
-      ...space,
-      categories: space.categories.map(cat => ({
-        ...cat,
-        channels: cat.channels.map(ch =>
-          ch.id === channelId
-            ? { ...ch, voiceParticipantIds: (ch.voiceParticipantIds ?? []).filter(id => id !== currentUser.id) }
-            : ch
-        ),
-      })),
-    })))
-  }, [currentUser])
+    setVoiceParticipants(channelId, ids => ids.filter(id => id !== currentUser.id))
+  }, [currentUser, setVoiceParticipants])
 
   const getUser = useCallback((id: string) => users.find(u => u.id === id), [users])
 

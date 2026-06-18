@@ -77,4 +77,25 @@ export const messageService = {
   async deleteMessage(messageId: string): Promise<void> {
     await request<void>(`${BASE}/messages/${messageId}`, { method: 'DELETE' })
   },
+
+  // ─── Channel messages (contract only — backend endpoints not yet live) ───────
+  // These mirror the DM model without `readAt`. Until the MessageService ships
+  // the /channels routes they will fail with 404/network errors; callers must
+  // treat that as expected and fall back to the embedded channel-object store.
+  // See docs/messageservice-channel-endpoints.md for the full contract.
+
+  async sendChannelMessage(channelId: string, body: string): Promise<ServiceMessage> {
+    return request<ServiceMessage>(`${BASE}/channels/${channelId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ body }),
+    })
+  },
+
+  async getChannelMessages(channelId: string, page = 1, limit = 100): Promise<ServiceMessage[]> {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) })
+    const res = await request<ServiceMessage[] | Paged<ServiceMessage>>(
+      `${BASE}/channels/${channelId}/messages?${params.toString()}`,
+    )
+    return toArray(res)
+  },
 }

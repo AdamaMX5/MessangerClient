@@ -76,6 +76,9 @@ export default function ForumView({ channel }: { channel: Channel }) {
     )
   }
 
+  // posts === undefined → still lazy-loading from the ObjectService;
+  // posts === [] → loaded, genuinely empty.
+  const isLoading = channel.posts === undefined
   const pinned  = channel.posts?.filter(p => p.pinned) ?? []
   const regular = channel.posts?.filter(p => !p.pinned) ?? []
 
@@ -99,7 +102,10 @@ export default function ForumView({ channel }: { channel: Channel }) {
 
       {regular.map(post => <PostCard key={post.id} post={post} onOpen={() => setOpenPost(post)} />)}
 
-      {!channel.posts?.length && (
+      {isLoading && (
+        <p className="text-discord-muted text-sm">Beiträge werden geladen…</p>
+      )}
+      {!isLoading && !channel.posts?.length && (
         <p className="text-discord-muted text-sm">Noch keine Beiträge. Erstelle den ersten!</p>
       )}
     </div>
