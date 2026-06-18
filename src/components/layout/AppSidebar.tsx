@@ -10,8 +10,6 @@ export default function AppSidebar() {
   const [showCreateIssueModal, setShowCreateIssueModal] = useState(false)
   const [showEditProfileModal, setShowEditProfileModal] = useState(false)
 
-  const canReportIssue = !!currentUser && (currentUser.roles.includes('admin') || currentUser.roles.includes('employee'))
-
   const isActive = (id: string | null) => activeSpaceId === id
 
   function NavButton({ active, title, onClick, children }: {
@@ -84,7 +82,7 @@ export default function AppSidebar() {
             <UserCog size={17} />
           </button>
         )}
-        {canReportIssue && (
+        {currentUser && (
           <button
             className="text-discord-muted hover:text-discord-blurple transition-colors"
             title="Fehler/Verbesserung melden"
