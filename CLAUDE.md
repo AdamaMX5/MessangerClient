@@ -20,12 +20,26 @@ npm run dev      # Entwicklungsserver → http://localhost:5173
 npm run build    # Produktions-Build (TypeScript + Vite)
 ```
 
-## Mock-Login
+## Login
 
-| E-Mail | Passwort | Ergebnis |
-|--------|---------|---------|
-| `max@mustermann.de` | `hallo` | Login als Max Mustermann |
-| Beliebige neue E-Mail | Beliebig | Registrierung → neuer User wird in `mockData` angelegt |
+Der Login läuft über den echten **AuthService** (`src/services/authService.ts`),
+nicht mehr über hartkodierte Mock-Logins. Der Flow ist email-first:
+
+1. `checkEmail(email)` — entscheidet, ob ein Account existiert (Login) oder neu
+   registriert werden muss (Check-E-Mail / klassische Registrierung).
+2. `login(email, password)` — liefert ein Access-Token (siehe „Token-Modell").
+3. `registerComplete(...)` — schließt die Registrierung eines neuen Accounts ab.
+
+## Token-Modell
+
+- **Access-Token** wird ausschließlich **in-memory** gehalten (`src/services/tokenStore.ts`),
+  niemals in `localStorage`/`sessionStorage` (XSS-Schutz).
+- **Refresh** läuft über ein **HttpOnly-Cookie** plus separates **CSRF-Cookie**;
+  der Client liest weder das eine noch das andere direkt aus.
+- Der Access-Token wird per **Auto-Refresh alle 10 Minuten** erneuert
+  (Timer in `AppContext`), sodass die Session ohne Re-Login bestehen bleibt.
+- `src/services/httpClient.ts` hängt den Access-Token als `Authorization`-Header
+  an und stößt bei `401` einen Refresh-Versuch an.
 
 ## Technologie-Stack
 
@@ -63,9 +77,20 @@ Alle Farben sind unter dem Namespace `discord` definiert (`tailwind.config.js`):
 ```
 src/
 ├── types/index.ts          # Alle TypeScript-Interfaces
-├── data/mockData.ts        # Statische Demo-Daten (Users, Spaces, Conversations)
-├── store/AppContext.tsx     # Globaler State + Actions (React Context)
-├── services/               # API-Stubs für spätere Backend-Anbindung
+├── data/mockData.ts        # Nur noch MOCK_USERS (statische Nutzerliste, siehe „Bekannte Lücken")
+├── store/
+│   ├── AppContext.tsx       # Globaler State + Actions (React Context)
+│   ├── dmHelpers.ts         # Reine Helfer für DMs (toUiMessage, deriveConversations, buildMessage)
+│   └── spacesHelpers.ts     # Mapping ObjectService-Objekte → UI (groupChannels, toSpace, toForumPost)
+├── services/                # Echte API-Clients (keine Stubs mehr)
+│   ├── httpClient.ts        # fetch-Wrapper: Auth-Header, 401-Refresh, JSON
+│   ├── tokenStore.ts        # In-memory Access-Token (kein localStorage)
+│   ├── authService.ts       # AuthService: checkEmail/login/registerComplete/refresh
+│   ├── profileService.ts    # ProfileService (GraphQL): globalProfile(userId)
+│   ├── messageService.ts    # MessageService: DMs (inbox/sent/send)
+│   ├── objectService.ts     # ObjectService: Collections (spaces/channels/forum-posts)
+│   ├── mediaService.ts      # MediaService: Avatar-Upload
+│   └── gitService.ts        # GitService: Issue-Erstellung
 ├── components/
 │   ├── auth/LoginPage.tsx  # Email-first Login + klassisches Registrierungsmodal
 │   ├── layout/             # AppSidebar, ChannelSidebar, TopBar, UserListPanel
@@ -90,19 +115,45 @@ src/
 | `video` | VideoRoomView | ❌ | Videoraum mit Kamera-Kacheln |
 | `stage` | StageView | ❌ | Bühne mit Sprecher/Publikum-Trennung |
 
-## Demo-Daten
+## Datenmodell ObjectService
 
-- **10 Nutzer** (`u1`–`u10`): Mix aus Mitarbeitern, Admins, Kunden
-- **2 Spaces**: Büro München (intern), Kundengewinnung (extern + Kunden)
-- **5 DM-Konversationen** mit realistischen Beispieldialogen
-- **Channels pro Typ** mit deutschen Beispieldaten
+Spaces, Channels und Forum-Posts werden als **Collections** im **ObjectService**
+persistiert (`src/services/objectService.ts`):
+
+- `spaces` — ein Objekt pro Space
+- `channels` — ein Objekt pro Channel; jedes Channel-Objekt trägt einen
+  `categoryName`. **Kategorien sind keine eigene Collection** — sie werden
+  client-seitig aus `channels[].categoryName` gruppiert (`groupChannels` in
+  `spacesHelpers.ts`).
+- `forum-posts` — ein Objekt pro Forum-Post.
+
+## Nutzer
+
+Die einzige verbleibende statische Datenquelle ist `MOCK_USERS` in
+`src/data/mockData.ts` (10 Demo-Nutzer `u1`–`u10`). Grund siehe „Bekannte Lücken".
 
 ## Neue Channels/Spaces hinzufügen
 
-Alles in `src/data/mockData.ts` → `MOCK_SPACES`. Struktur:
-`Space → categories[] → ChannelCategory → channels[] → Channel`
+Spaces und Channels werden **nicht mehr in `mockData.ts`** gepflegt, sondern über
+die ObjectService-Collections `spaces` bzw. `channels` (anlegen via
+`objectService.ts`). Ein Channel-Objekt braucht mindestens: `id`, `spaceId`,
+`name`, `type`, `categoryName`, `isEncrypted`, `isPublic`, `memberIds`.
 
-Ein neuer Channel braucht mindestens: `id`, `spaceId`, `name`, `type`, `isEncrypted`, `isPublic`, `messages: []`, `memberIds`.
+## Bekannte Lücken
+
+- **Keine Nutzerliste in ProfileService**: ProfileService kann nur einzelne
+  Profile (`globalProfile(userId)`) auflösen, nicht alle Nutzer aufzählen. Daher
+  bleibt `MOCK_USERS` als statische Demo-Liste bestehen, bis es einen
+  entsprechenden Endpoint gibt.
+- **Presence nur für eigenen Nutzer**: Nur der eigene Online-Status ist real;
+  fremde Nutzer defaulten auf `'offline'`.
+- **Channel-Textnachrichten provisorisch**: laufen vorübergehend über in das
+  ObjectService-Channel-Objekt eingebettete Nachrichten mit Fallback, bis der in
+  `docs/messageservice-channel-endpoints.md` dokumentierte MessageService-Endpoint
+  existiert.
+- **Keine Membership-ACL im ObjectService**: private Channels sind nur UI-seitig
+  verborgen — der ObjectService erzwingt keine Mitgliedschafts-Prüfung
+  (siehe Security-Review Batch C).
 
 ## State-Management
 
@@ -112,10 +163,14 @@ Ein neuer Channel braucht mindestens: `id`, `spaceId`, `name`, `type`, `isEncryp
 - `sendDM / sendChannelMessage` — Nachrichten lokal hinzufügen
 - `joinVoiceChannel / leaveVoiceChannel` — Teilnehmer-Listen
 
-## Backend-Anbindung (später)
+## Backend-Anbindung
 
-Die `services/`-Stubs ersetzen die Mock-Logik in `AppContext`:
-- `authService.ts` → AuthService REST
-- `messageService.ts` → MessageService REST
-- `profileService.ts` → ProfileService GraphQL
-- `meetingService.ts` → LiveKit / RecordingService
+Die `services/`-Clients sind angebunden (keine Stubs mehr) und ersetzen die
+frühere Mock-Logik in `AppContext`:
+- `authService.ts` → AuthService (Login/Refresh)
+- `messageService.ts` → MessageService (DMs)
+- `profileService.ts` → ProfileService (GraphQL)
+- `objectService.ts` → ObjectService (Spaces/Channels/Forum-Posts)
+- `mediaService.ts` → MediaService (Avatar-Upload)
+- `gitService.ts` → GitService (Issue-Erstellung)
+- `meetingService.ts` → LiveKit / RecordingService (noch nicht aktiv genutzt)

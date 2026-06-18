@@ -69,6 +69,18 @@ export function upsertConversationMessage(
   return [fresh, ...conversations]
 }
 
+// Build a UI Message with a generated id/createdAt for optimistic sends.
+export function buildMessage(senderId: string, channelId: string, body: string): Message {
+  return {
+    id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    senderId,
+    channelId,
+    body,
+    createdAt: new Date().toISOString(),
+    readAt: null,
+  }
+}
+
 function buildConversation(
   partnerId: string,
   last: ServiceMessage,

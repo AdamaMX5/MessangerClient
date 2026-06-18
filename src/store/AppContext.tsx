@@ -1,16 +1,12 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react'
 import type { User, UserRole, UserStatus, Space, Conversation, Channel, Message } from '../types'
-import {
-  MOCK_USERS,
-  LOGGED_IN_USER_ID,
-  buildMessage,
-} from '../data/mockData'
+import { MOCK_USERS } from '../data/mockData'
 import { authService } from '../services/authService'
 import { profileService } from '../services/profileService'
 import { messageService } from '../services/messageService'
 import { objectService } from '../services/objectService'
 import { clearAccessToken } from '../services/tokenStore'
-import { deriveConversations, toUiMessage, upsertConversationMessage } from './dmHelpers'
+import { buildMessage, deriveConversations, toUiMessage, upsertConversationMessage } from './dmHelpers'
 import {
   groupChannels, toSpace, toForumPost,
   type SpaceData, type ChannelData, type ForumPostData,
@@ -472,6 +468,3 @@ export function useApp() {
   if (!ctx) throw new Error('useApp must be used inside AppProvider')
   return ctx
 }
-
-// Pre-login helper — expose the known user for mockup convenience
-export { LOGGED_IN_USER_ID, MOCK_USERS }
