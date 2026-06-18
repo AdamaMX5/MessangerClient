@@ -1,12 +1,14 @@
 import { useState } from 'react'
-import { MessageSquare, LogOut, Bug } from 'lucide-react'
+import { MessageSquare, LogOut, Bug, UserCog } from 'lucide-react'
 import { useApp } from '../../store/AppContext'
 import Avatar from '../common/Avatar'
 import CreateIssueModal from '../modals/CreateIssueModal'
+import EditProfileModal from '../modals/EditProfileModal'
 
 export default function AppSidebar() {
   const { currentUser, spaces, activeSpaceId, setActiveSpace, logout } = useApp()
   const [showCreateIssueModal, setShowCreateIssueModal] = useState(false)
+  const [showEditProfileModal, setShowEditProfileModal] = useState(false)
 
   const canReportIssue = !!currentUser && (currentUser.roles.includes('admin') || currentUser.roles.includes('employee'))
 
@@ -73,6 +75,15 @@ export default function AppSidebar() {
 
       {/* Bottom: user + logout */}
       <div className="mt-auto flex flex-col items-center gap-2.5">
+        {currentUser && (
+          <button
+            className="text-discord-muted hover:text-discord-blurple transition-colors"
+            title="Profil bearbeiten"
+            onClick={() => setShowEditProfileModal(true)}
+          >
+            <UserCog size={17} />
+          </button>
+        )}
         {canReportIssue && (
           <button
             className="text-discord-muted hover:text-discord-blurple transition-colors"
@@ -97,6 +108,7 @@ export default function AppSidebar() {
       </div>
     </aside>
     <CreateIssueModal isOpen={showCreateIssueModal} onClose={() => setShowCreateIssueModal(false)} />
+    <EditProfileModal isOpen={showEditProfileModal} onClose={() => setShowEditProfileModal(false)} />
     </>
   )
 }

@@ -37,9 +37,10 @@ function decodeJwtPayload(token: string): JwtPayload {
   }
 }
 
-// Merge JWT identity with the profile data into the UI User shape.
-async function buildCurrentUser(token: string): Promise<User> {
-  const jwt = decodeJwtPayload(token)
+// Merge JWT identity with freshly fetched profile data into the UI User shape.
+// The JWT identity (id/email/roles) is passed in so this can be reused both on
+// login (decode token) and on a later profile refresh (keep prior identity).
+async function buildUserFromProfiles(jwt: JwtPayload): Promise<User> {
   const [global, vo] = await Promise.all([
     profileService.myGlobalProfile().catch(() => null),
     profileService.myVirtualOfficeProfile().catch(() => null),
@@ -54,6 +55,10 @@ async function buildCurrentUser(token: string): Promise<User> {
   }
 }
 
+function buildCurrentUser(token: string): Promise<User> {
+  return buildUserFromProfiles(decodeJwtPayload(token))
+}
+
 interface AppContextType {
   // Auth
   currentUser: User | null
@@ -62,6 +67,7 @@ interface AppContextType {
   login: (email: string, password: string) => Promise<void>
   register: (email: string, password: string, repassword: string) => Promise<void>
   logout: () => Promise<void>
+  refreshProfile: () => Promise<void>
 
   // Data
   users: User[]
@@ -101,6 +107,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [isAuthLoading, setIsAuthLoading] = useState(true)
 
+  // Mirror currentUser into a ref so callbacks can read the latest identity
+  // without taking it as a dependency (avoids recreating stable callbacks).
+  const currentUserRef = useRef<User | null>(null)
+  currentUserRef.current = currentUser
+
   // Cache of resolved DM-partner profiles (userId → display data), so the
   // sidebar can show names/avatars for users outside the static demo list.
   const partnerProfiles = useRef(new Map<string, { name: string; avatarUrl?: string }>())
@@ -126,6 +137,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const register = useCallback(async (email: string, password: string, repassword: string): Promise<void> => {
     const session = await authService.registerComplete(email, password, repassword)
     setCurrentUser(await buildCurrentUser(session.access_token))
+  }, [])
+
+  // Reload the current user's profile (e.g. after editing it) while preserving
+  // the JWT-derived identity (id/email/roles), which profile data never owns.
+  const refreshProfile = useCallback(async (): Promise<void> => {
+    const prev = currentUserRef.current
+    if (!prev) return
+    const updated = await buildUserFromProfiles({ sub: prev.id, email: prev.email, roles: prev.roles })
+    setCurrentUser(cur => (cur ? updated : cur))
   }, [])
 
   const logout = useCallback(async () => {
@@ -435,7 +455,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Set default logged-in user on mount (demo convenience)
   const value: AppContextType = {
-    currentUser, isAuthLoading, checkEmail, login, register, logout,
+    currentUser, isAuthLoading, checkEmail, login, register, logout, refreshProfile,
     users, spaces, conversations,
     activeSpaceId, activeChannelId, activeConversationId,
     setActiveSpace, setActiveChannel, setActiveConversation,
