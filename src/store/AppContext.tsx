@@ -69,6 +69,7 @@ interface AppContextType {
   users: User[]
   spaces: Space[]
   conversations: Conversation[]
+  reloadSpaces: () => Promise<void>
 
   // Navigation
   activeSpaceId: string | null
@@ -452,7 +453,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Set default logged-in user on mount (demo convenience)
   const value: AppContextType = {
     currentUser, isAuthLoading, checkEmail, login, register, logout, refreshProfile,
-    users, spaces, conversations,
+    users, spaces, conversations, reloadSpaces: loadSpaces,
     activeSpaceId, activeChannelId, activeConversationId,
     setActiveSpace, setActiveChannel, setActiveConversation,
     showUserList, toggleUserList,

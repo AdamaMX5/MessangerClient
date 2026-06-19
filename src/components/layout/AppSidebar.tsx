@@ -1,14 +1,26 @@
 import { useState } from 'react'
-import { MessageSquare, LogOut, Lightbulb, UserCog } from 'lucide-react'
+import { MessageSquare, LogOut, Lightbulb, UserCog, Plus } from 'lucide-react'
 import { useApp } from '../../store/AppContext'
+import type { UserRole } from '../../types'
 import Avatar from '../common/Avatar'
 import CreateIssueModal from '../modals/CreateIssueModal'
 import EditProfileModal from '../modals/EditProfileModal'
+import CreateSpaceModal from '../modals/CreateSpaceModal'
+
+// Roles allowed to create a new space. plan.md restricts space creation to
+// `admin`; issue #1 additionally names "Chefs und Moderatoren". There is no
+// dedicated role for either, so `channel-admin` (Abteilungsleiter ≈ "Chef")
+// is included as the closest match; "Moderator" has no role equivalent yet.
+// Kept as a single editable list so the gating can be adjusted in one place.
+const SPACE_CREATE_ROLES: UserRole[] = ['admin', 'channel-admin']
 
 export default function AppSidebar() {
   const { currentUser, spaces, activeSpaceId, setActiveSpace, logout } = useApp()
   const [showCreateIssueModal, setShowCreateIssueModal] = useState(false)
   const [showEditProfileModal, setShowEditProfileModal] = useState(false)
+  const [showCreateSpaceModal, setShowCreateSpaceModal] = useState(false)
+
+  const canCreateSpace = !!currentUser?.roles.some(r => SPACE_CREATE_ROLES.includes(r))
 
   const isActive = (id: string | null) => activeSpaceId === id
 
@@ -71,6 +83,13 @@ export default function AppSidebar() {
         </NavButton>
       ))}
 
+      {/* Create space — only visible to roles allowed to create spaces */}
+      {canCreateSpace && (
+        <NavButton active={false} title="Space erstellen" onClick={() => setShowCreateSpaceModal(true)}>
+          <Plus size={22} className="text-discord-green" />
+        </NavButton>
+      )}
+
       {/* Bottom: user + logout */}
       <div className="mt-auto flex flex-col items-center gap-2.5">
         {currentUser && (
@@ -107,6 +126,7 @@ export default function AppSidebar() {
     </aside>
     <CreateIssueModal isOpen={showCreateIssueModal} onClose={() => setShowCreateIssueModal(false)} />
     <EditProfileModal isOpen={showEditProfileModal} onClose={() => setShowEditProfileModal(false)} />
+    <CreateSpaceModal isOpen={showCreateSpaceModal} onClose={() => setShowCreateSpaceModal(false)} />
     </>
   )
 }
