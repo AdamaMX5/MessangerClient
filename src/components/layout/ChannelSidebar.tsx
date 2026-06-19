@@ -1,7 +1,9 @@
 import { ChevronRight, Hash, Volume2, Video, BookOpen, HelpCircle, Megaphone, Presentation, Rocket, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { useApp } from '../../store/AppContext'
+import { SPACE_CHANNEL_MANAGE_ROLES } from '../../constants/roles'
 import Avatar from '../common/Avatar'
+import CreateChannelModal from '../modals/CreateChannelModal'
 import type { ChannelType, Conversation } from '../../types'
 
 const CHANNEL_ICON: Record<ChannelType, React.ReactNode> = {
@@ -89,11 +91,16 @@ function UserFooter() {
 }
 
 export default function ChannelSidebar() {
-  const { spaces, conversations, activeSpaceId, activeChannelId, activeConversationId,
+  const { currentUser, spaces, conversations, activeSpaceId, activeChannelId, activeConversationId,
           setActiveChannel, setActiveConversation } = useApp()
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  // Holds the category to preselect while the create-channel modal is open;
+  // null means the modal is closed.
+  const [createCategory, setCreateCategory] = useState<string | null>(null)
 
   const toggleCat = (id: string) => setCollapsed(p => ({ ...p, [id]: !p[id] }))
+
+  const canManageChannels = !!currentUser?.roles.some(r => SPACE_CHANNEL_MANAGE_ROLES.includes(r))
 
   // ─── DM mode ─────────────────────────────────────────────────────────────────
   if (!activeSpaceId) {
@@ -132,6 +139,7 @@ export default function ChannelSidebar() {
   if (!space) return null
 
   return (
+    <>
     <aside className="w-60 flex flex-col flex-shrink-0" style={{ background: '#0A0D1D', borderRight: '1px solid rgba(255,255,255,0.04)' }}>
       {/* Space header */}
       <div className="px-4 py-3.5 flex items-center justify-between cursor-pointer hover:bg-discord-hover transition-colors"
@@ -155,7 +163,21 @@ export default function ChannelSidebar() {
               <span className="text-[10px] font-bold text-discord-muted uppercase tracking-widest truncate group-hover:text-discord-text transition-colors">
                 {cat.name}
               </span>
-              <Plus size={11} className="ml-auto opacity-0 group-hover:opacity-100 text-discord-muted hover:text-discord-text transition-all flex-shrink-0" />
+              {canManageChannels && (
+                // Channel-create trigger. stopPropagation keeps the click from
+                // toggling the category collapse. Rendered as a span (not a
+                // nested button) since the header itself is already a button.
+                <span
+                  role="button"
+                  tabIndex={0}
+                  title="Channel erstellen"
+                  className="ml-auto opacity-0 group-hover:opacity-100 text-discord-muted hover:text-discord-text transition-all flex-shrink-0 cursor-pointer"
+                  onClick={e => { e.stopPropagation(); setCreateCategory(cat.name) }}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setCreateCategory(cat.name) } }}
+                >
+                  <Plus size={11} />
+                </span>
+              )}
             </button>
 
             {/* Channels */}
@@ -207,5 +229,11 @@ export default function ChannelSidebar() {
 
       <UserFooter />
     </aside>
+    <CreateChannelModal
+      isOpen={createCategory !== null}
+      defaultCategoryName={createCategory ?? undefined}
+      onClose={() => setCreateCategory(null)}
+    />
+    </>
   )
 }
