@@ -95,6 +95,18 @@ Beim Anlegen eines neuen Channels gibt es zwei Toggle-Einstellungen, die sich ge
 
 **Regel:** Wird "Frei beitretbar" aktiviert, wird die Verschlüsselung automatisch deaktiviert und ausgegraut — und umgekehrt. Beide Toggles können nicht gleichzeitig aktiv sein.
 
+### Mitgliedschaften & MessangerProfil
+
+**Persistenz-Modell für Spaces und Channel-Mitgliedschaften:**
+
+- **Spaces** liegen im **ObjectService** (Collection `spaces`) und werden ausschließlich von **Admins** angelegt. Jeder Client ruft die für ihn sichtbaren Spaces von dort ab.
+- Im **ProfileService** legt jeder Nutzer zusätzlich zum GlobalProfile ein **app-spezifisches MessangerProfil** an. Darin werden die **Spaces und Channel-Mitgliedschaften** des Nutzers gespeichert — als schneller Einstiegspunkt, damit die UI nach dem Login nicht erst alle Spaces durchsuchen muss.
+- **Membership-Reconciliation (Hintergrundsuche):** Direkt nach dem Abruf des MessangerProfils startet der Client eine **langsame Hintergrundsuche mit jeweils nur einem gleichzeitigen Request** (sequentiell, um die Services nicht zu überlasten) durch **alle Spaces**. Sie ermittelt, in welchen Channels der Nutzer als Mitglied eingetragen ist (`channel.memberIds` enthält die eigene userId), und **aktualisiert das MessangerProfil** entsprechend.
+  - Das MessangerProfil ist damit ein **Cache**, der gegen die ObjectService-Wahrheit (`spaces`/`channels`) abgeglichen wird — neu erteilte oder entzogene Mitgliedschaften werden beim nächsten Reconcile übernommen.
+  - Die Suche läuft **non-blocking**: Die UI ist sofort mit dem gecachten Profil nutzbar; gefundene Änderungen werden im Hintergrund nachgezogen.
+
+> Hintergrund: Der ProfileService kann keine Nutzer auflisten und der ObjectService erzwingt (noch) keine Membership-ACL. Das MessangerProfil + Reconciliation überbrückt das client-seitig, bis serverseitige Endpunkte existieren — siehe die Channel-Issue im `MessageService`-Repo (Channel-Nachrichten nur für Mitglieds-UserIDs).
+
 ---
 
 ## Stack
