@@ -16,6 +16,27 @@ import {
 const REFRESH_INTERVAL_MS = 10 * 60 * 1000
 const CONVERSATION_LIST_POLL_MS = 15 * 1000
 const ACTIVE_CONVERSATION_POLL_MS = 10 * 1000
+const ACTIVE_CHANNEL_POLL_MS = 10 * 1000
+
+// Channel types whose content is a text-message feed backed by the MessageService.
+const MESSAGE_CHANNEL_TYPES = new Set(['text', 'announcement'])
+
+// Apply a transform to one channel's message list anywhere in the spaces tree,
+// returning a new spaces array (pure — safe to use inside a setSpaces updater).
+function mapChannelMessages(
+  spaces: Space[],
+  channelId: string,
+  fn: (msgs: Message[]) => Message[],
+): Space[] {
+  return spaces.map(space => ({
+    ...space,
+    categories: space.categories.map(cat => ({
+      ...cat,
+      channels: cat.channels.map(ch =>
+        ch.id === channelId ? { ...ch, messages: fn(ch.messages) } : ch),
+    })),
+  }))
+}
 
 interface JwtPayload {
   sub?: string
@@ -88,7 +109,7 @@ interface AppContextType {
 
   // Actions
   sendDM: (conversationId: string, body: string) => Promise<void>
-  sendChannelMessage: (channelId: string, body: string) => void
+  sendChannelMessage: (channelId: string, body: string) => Promise<void>
   joinVoiceChannel: (channelId: string) => void
   leaveVoiceChannel: (channelId: string) => void
 
@@ -112,6 +133,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // without taking it as a dependency (avoids recreating stable callbacks).
   const currentUserRef = useRef<User | null>(null)
   currentUserRef.current = currentUser
+
+  // Mirror spaces into a ref so the channel-message loader can look up a
+  // channel's type without taking `spaces` as an effect dependency (which would
+  // re-trigger the load on every message update and loop).
+  const spacesRef = useRef<Space[]>([])
+  spacesRef.current = spaces
 
   // Cache of resolved DM-partner profiles (userId → display data), so the
   // sidebar can show names/avatars for users outside the static demo list.
@@ -359,6 +386,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => { cancelled = true }
   }, [activeChannelId, spaces, updateChannel])
 
+  // Load + poll the active channel's message feed from the MessageService.
+  // Channel type is read from a ref (not `spaces`) so the effect does not
+  // restart on every message update. Only feed-style channels (text/announcement)
+  // have messages; other types render their own non-message views.
+  useEffect(() => {
+    if (!currentUser || !activeChannelId) return
+    const channel = spacesRef.current
+      .flatMap(s => s.categories).flatMap(c => c.channels)
+      .find(ch => ch.id === activeChannelId)
+    if (!channel || !MESSAGE_CHANNEL_TYPES.has(channel.type)) return
+
+    const channelId = activeChannelId
+    let cancelled = false
+    const load = async () => {
+      try {
+        const msgs = await messageService.getChannelMessages(channelId)
+        if (cancelled) return
+        updateChannel(channelId, { messages: msgs.map(m => toUiMessage(m, channelId)) })
+      } catch {
+        // Not a member (403), unknown channel (404) or network error — keep
+        // whatever is already on screen rather than wiping the feed.
+      }
+    }
+    void load()
+    const id = setInterval(() => void load(), ACTIVE_CHANNEL_POLL_MS)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [currentUser, activeChannelId, updateChannel])
+
   const setActiveSpace = useCallback((id: string | null) => {
     setActiveSpaceId(id)
     setActiveChannelId(null)
@@ -402,33 +457,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [currentUser])
 
-  // Append a channel message optimistically, then try the (future) MessageService
-  // channel endpoint. On network/404 failure we fall back to persisting the new
-  // messages array into the embedded channel object via the ObjectService — the
-  // local optimistic state is the source for that read-modify-write, so the
-  // append is never lost. The optimistic message stays on screen either way.
-  const sendChannelMessage = useCallback((channelId: string, body: string) => {
+  // Send a channel message via the MessageService (the single source of truth
+  // for channel messages). Append optimistically, then swap in the persisted
+  // message on success or roll it back on failure — mirrors sendDM.
+  const sendChannelMessage = useCallback(async (channelId: string, body: string) => {
     if (!currentUser) return
-    const msg = buildMessage(currentUser.id, channelId, body)
-    let nextMessages: Message[] = []
-    setSpaces(prev => prev.map(space => ({
-      ...space,
-      categories: space.categories.map(cat => ({
-        ...cat,
-        channels: cat.channels.map(ch => {
-          if (ch.id !== channelId) return ch
-          nextMessages = [...ch.messages, msg]
-          return { ...ch, messages: nextMessages }
-        }),
-      })),
-    })))
+    const optimistic = buildMessage(currentUser.id, channelId, body)
+    setSpaces(prev => mapChannelMessages(prev, channelId, msgs => [...msgs, optimistic]))
 
-    messageService.sendChannelMessage(channelId, body).catch(() => {
-      // Endpoint not live yet — persist the embedded messages array instead.
-      void objectService.patch<ChannelData>('channels', channelId, {
-        data: { messages: nextMessages }, merge: true,
-      }).catch(() => { /* best effort; optimistic state already shown */ })
-    })
+    try {
+      const sent = await messageService.sendChannelMessage(channelId, body)
+      const real = toUiMessage(sent, channelId)
+      setSpaces(prev => mapChannelMessages(prev, channelId, msgs =>
+        msgs.map(m => m.id === optimistic.id ? real : m)))
+    } catch {
+      // Roll back the optimistic message on failure (not a member, network, …).
+      setSpaces(prev => mapChannelMessages(prev, channelId, msgs =>
+        msgs.filter(m => m.id !== optimistic.id)))
+    }
   }, [currentUser])
 
   // Compute the new participant list from current state, update locally, then

@@ -4,12 +4,16 @@ const BASE = import.meta.env.VITE_MESSAGE_SERVICE_URL ?? 'https://message.freisc
 
 // Raw message as returned by the MessageService. Field names may be nested
 // differently in practice; callers should treat this shape defensively.
+// The DM variant carries `recipientId` + `readAt`; the channel variant carries
+// `channelId` and has no `readAt` (channels have no per-recipient read state —
+// see docs/messageservice-channel-endpoints.md).
 export interface ServiceMessage {
   id: string
   senderId: string
-  recipientId: string
+  recipientId?: string
+  channelId?: string
   body: string
-  readAt: string | null
+  readAt?: string | null
   createdAt: string
 }
 
@@ -78,10 +82,10 @@ export const messageService = {
     await request<void>(`${BASE}/messages/${messageId}`, { method: 'DELETE' })
   },
 
-  // ─── Channel messages (contract only — backend endpoints not yet live) ───────
-  // These mirror the DM model without `readAt`. Until the MessageService ships
-  // the /channels routes they will fail with 404/network errors; callers must
-  // treat that as expected and fall back to the embedded channel-object store.
+  // ─── Channel messages ────────────────────────────────────────────────────
+  // Channel-scoped messages mirror the DM model without `readAt`. The service
+  // authorizes by channel membership (JWT `sub` ∈ channel `memberIds`); it
+  // returns 403 for non-members and 404 for unknown channels.
   // See docs/messageservice-channel-endpoints.md for the full contract.
 
   async sendChannelMessage(channelId: string, body: string): Promise<ServiceMessage> {

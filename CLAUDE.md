@@ -147,10 +147,6 @@ die ObjectService-Collections `spaces` bzw. `channels` (anlegen via
   entsprechenden Endpoint gibt.
 - **Presence nur für eigenen Nutzer**: Nur der eigene Online-Status ist real;
   fremde Nutzer defaulten auf `'offline'`.
-- **Channel-Textnachrichten provisorisch**: laufen vorübergehend über in das
-  ObjectService-Channel-Objekt eingebettete Nachrichten mit Fallback, bis der in
-  `docs/messageservice-channel-endpoints.md` dokumentierte MessageService-Endpoint
-  existiert.
 - **Keine Membership-ACL im ObjectService**: private Channels sind nur UI-seitig
   verborgen — der ObjectService erzwingt keine Mitgliedschafts-Prüfung
   (siehe Security-Review Batch C).
@@ -168,9 +164,9 @@ die ObjectService-Collections `spaces` bzw. `channels` (anlegen via
 Die `services/`-Clients sind angebunden (keine Stubs mehr) und ersetzen die
 frühere Mock-Logik in `AppContext`:
 - `authService.ts` → AuthService (Login/Refresh)
-- `messageService.ts` → MessageService (DMs)
+- `messageService.ts` → MessageService (DMs + Channel-Textnachrichten)
 - `profileService.ts` → ProfileService (GraphQL)
-- `objectService.ts` → ObjectService (Spaces/Channels/Forum-Posts)
+- `objectService.ts` → ObjectService (Spaces/Channels/Forum-Posts; keine Nachrichten mehr)
 - `mediaService.ts` → MediaService (Avatar-Upload)
 - `gitService.ts` → GitService (Issue-Erstellung)
 - `meetingService.ts` → LiveKit / RecordingService (noch nicht aktiv genutzt)

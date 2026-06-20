@@ -75,7 +75,7 @@ function MainContent() {
           <ChatArea messages={ch.messages} currentUserId={currentUser.id} getUser={getUser} />
           <MessageInput
             placeholder={`Nachricht an #${ch.name}`}
-            onSend={body => sendChannelMessage(activeChannelId, body)}
+            onSend={body => { void sendChannelMessage(activeChannelId, body) }}
           />
         </>
       )

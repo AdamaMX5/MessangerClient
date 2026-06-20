@@ -24,8 +24,6 @@ export interface ChannelData {
   voiceParticipantIds?: string[]
   faqItems?: FaqItem[]
   onboardingSteps?: OnBoardingStep[]
-  // Transitional embedded channel-message store (see AppContext.sendChannelMessage).
-  messages?: Message[]
 }
 
 export interface ForumPostData {
@@ -51,7 +49,9 @@ function toChannel(obj: StoredObject<ChannelData>): Channel {
     isEncrypted: d.isEncrypted,
     isPublic: d.isPublic,
     memberIds: d.memberIds ?? [],
-    messages: d.messages ?? [],
+    // Channel messages live in the MessageService, not in the channel object;
+    // they are loaded on demand when the channel becomes active.
+    messages: [],
     voiceParticipantIds: d.voiceParticipantIds,
     faqItems: d.faqItems,
     onboardingSteps: d.onboardingSteps,

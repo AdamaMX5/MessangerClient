@@ -1,9 +1,10 @@
 import type { Conversation, Message } from '../types'
 import type { ServiceMessage } from '../services/messageService'
 
-// In the 1:1 DM world the conversation id is simply the other user's id, and we
-// reuse the UI Message.channelId field to carry that same conversation id so the
-// existing chat components keep working unchanged.
+// In the 1:1 DM world the conversation id is simply the other user's id; for a
+// channel it is the channel id. Either way we stamp it onto the UI
+// Message.channelId field so the chat components stay agnostic. Channel
+// messages have no `readAt`, so it normalizes to null.
 export function toUiMessage(sm: ServiceMessage, conversationId: string): Message {
   return {
     id: sm.id,
@@ -16,7 +17,7 @@ export function toUiMessage(sm: ServiceMessage, conversationId: string): Message
 }
 
 function otherUserId(sm: ServiceMessage, currentUserId: string): string {
-  return sm.senderId === currentUserId ? sm.recipientId : sm.senderId
+  return sm.senderId === currentUserId ? (sm.recipientId ?? '') : sm.senderId
 }
 
 // Derive 1:1 conversation stubs from the union of inbox + sent messages.

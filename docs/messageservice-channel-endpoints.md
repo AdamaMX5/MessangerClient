@@ -1,16 +1,17 @@
-# MessageService — Channel Message Endpoints (Proposed)
+# MessageService — Channel Message Endpoints
 
-Status: **proposed, not yet implemented.** The MessengerClient already calls
-these routes (`messageService.sendChannelMessage` / `getChannelMessages`) and
-falls back to the embedded ObjectService channel store when they fail.
+Status: **live.** The MessengerClient uses these routes
+(`messageService.sendChannelMessage` / `getChannelMessages`) as the sole source
+of truth for channel messages. The former embedded ObjectService channel-message
+fallback (`channels[].data.messages`) has been removed.
 
 ## Motivation
 
-Channel text messages (`type: 'text'` and `announcement`) are currently embedded
+Channel text messages (`type: 'text'` and `announcement`) used to be embedded
 in the channel object inside the ObjectService (`channels` collection,
-`data.messages`). This does not scale: every message append requires a
-read-modify-write of the whole channel document, there is no pagination, and
-concurrent senders race on the array.
+`data.messages`). This did not scale: every message append required a
+read-modify-write of the whole channel document, there was no pagination, and
+concurrent senders raced on the array.
 
 The DM model in the MessageService already solves all of this for 1:1 messages.
 These endpoints extend the same model to channel-scoped messages. The only
