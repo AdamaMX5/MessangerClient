@@ -23,11 +23,22 @@ export interface VirtualOfficeProfile {
   vacationPeriods: string[]
 }
 
+// App-specific MessengerClient profile. Acts as a fast-start cache of the user's
+// space and channel memberships so the UI does not have to sweep every space on
+// login. The ObjectService (`spaces`/`channels`) stays the source of truth; this
+// profile is reconciled against it in the background (see membershipHelpers).
+export interface MessangerProfile {
+  spaceIds: string[]
+  channelIds: string[]
+}
+
 export type GlobalProfileInput = Partial<GlobalProfile>
 export type VirtualOfficeProfileInput = Partial<VirtualOfficeProfile>
+export type MessangerProfileInput = Partial<MessangerProfile>
 
 const GLOBAL_FIELDS = 'displayName firstName lastName avatar email phone address matrixUsername'
 const VO_FIELDS = 'role department title status availability workingHours vacationPeriods'
+const MESSANGER_FIELDS = 'spaceIds channelIds'
 
 export const profileService = {
   async myGlobalProfile(): Promise<GlobalProfile> {
@@ -71,5 +82,22 @@ export const profileService = {
       { input },
     )
     return data.updateVirtualOfficeProfile
+  },
+
+  async myMessangerProfile(): Promise<MessangerProfile> {
+    const data = await graphqlRequest<{ myMessangerProfile: MessangerProfile }>(
+      BASE,
+      `query { myMessangerProfile { ${MESSANGER_FIELDS} } }`,
+    )
+    return data.myMessangerProfile
+  },
+
+  async updateMessangerProfile(input: MessangerProfileInput): Promise<MessangerProfile> {
+    const data = await graphqlRequest<{ updateMessangerProfile: MessangerProfile }>(
+      BASE,
+      `mutation Update($input: MessangerProfileInput!) { updateMessangerProfile(input: $input) { ${MESSANGER_FIELDS} } }`,
+      { input },
+    )
+    return data.updateMessangerProfile
   },
 }

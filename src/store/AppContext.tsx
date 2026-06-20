@@ -2,11 +2,12 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef, ty
 import type { User, UserRole, UserStatus, Space, Conversation, Channel, Message } from '../types'
 import { MOCK_USERS } from '../data/mockData'
 import { authService } from '../services/authService'
-import { profileService } from '../services/profileService'
+import { profileService, type MessangerProfile } from '../services/profileService'
 import { messageService } from '../services/messageService'
 import { objectService } from '../services/objectService'
 import { clearAccessToken } from '../services/tokenStore'
 import { buildMessage, deriveConversations, toUiMessage, upsertConversationMessage } from './dmHelpers'
+import { scanMemberships, sameMembership } from './membershipHelpers'
 import {
   groupChannels, toSpace, toForumPost,
   type SpaceData, type ChannelData, type ForumPostData,
@@ -69,6 +70,8 @@ interface AppContextType {
   users: User[]
   spaces: Space[]
   conversations: Conversation[]
+  // Cached space/channel memberships, reconciled in the background after login.
+  messangerProfile: MessangerProfile | null
   reloadSpaces: () => Promise<void>
 
   // Navigation
@@ -101,6 +104,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [users] = useState<User[]>(MOCK_USERS)
   const [spaces, setSpaces] = useState<Space[]>([])
   const [conversations, setConversations] = useState<Conversation[]>([])
+  const [messangerProfile, setMessangerProfile] = useState<MessangerProfile | null>(null)
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [isAuthLoading, setIsAuthLoading] = useState(true)
 
@@ -223,6 +227,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!currentUser) { setSpaces([]); return }
     loadSpaces().catch(() => setSpaces([]))
   }, [currentUser, loadSpaces])
+
+  // Load the cached MessangerProfil on login, then reconcile it against the
+  // ObjectService in the background. The whole flow runs off the render path, so
+  // the UI is usable immediately from the cache (non-blocking); the sequential
+  // scan (one request at a time) and any profile write happen afterwards.
+  useEffect(() => {
+    if (!currentUser) { setMessangerProfile(null); return }
+    const userId = currentUser.id
+    let cancelled = false
+
+    void (async () => {
+      // 1. Fast start: show whatever the profile cache already knows.
+      const cached = await profileService.myMessangerProfile().catch(() => null)
+      if (cancelled) return
+      if (cached) setMessangerProfile(cached)
+
+      // 2. Reconcile: sequential sweep of all spaces/channels for real memberships.
+      const fresh = await scanMemberships(userId).catch(() => null)
+      if (cancelled || !fresh) return
+      setMessangerProfile(fresh)
+
+      // 3. Persist only when memberships actually changed since the cache.
+      if (cancelled) return
+      if (!cached || !sameMembership(cached, fresh)) {
+        await profileService.updateMessangerProfile(fresh).catch(() => { /* best effort; retried next login */ })
+      }
+    })()
+
+    return () => { cancelled = true }
+  }, [currentUser])
 
   // Initial load + periodic refresh of the conversation list while logged in.
   useEffect(() => {
@@ -453,7 +487,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Set default logged-in user on mount (demo convenience)
   const value: AppContextType = {
     currentUser, isAuthLoading, checkEmail, login, register, logout, refreshProfile,
-    users, spaces, conversations, reloadSpaces: loadSpaces,
+    users, spaces, conversations, messangerProfile, reloadSpaces: loadSpaces,
     activeSpaceId, activeChannelId, activeConversationId,
     setActiveSpace, setActiveChannel, setActiveConversation,
     showUserList, toggleUserList,
