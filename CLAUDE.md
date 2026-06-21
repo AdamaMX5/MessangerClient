@@ -157,10 +157,19 @@ die ObjectService-Collections `spaces` bzw. `channels` (anlegen via
   laden/hinzufügen/entfernen, Admins ernennen/degradieren, selbst verlassen) und
   schreibt `channels.data.memberIds`/`adminIds` **nicht mehr direkt** — der
   MessageService persistiert die Änderung server-seitig via `X-API-Key`.
-- **ObjectService-ACL für `spaces`/`channels` noch offen**: Das Anlegen/Ändern
-  von Space-/Channel-**Objekten** ist weiterhin nur UI-seitig auf berechtigte
-  Rollen beschränkt; die server-seitige Namespace-ACL ist im ObjectService
-  getrackt (AdamaMX5/ObjectService#1, siehe Security-Review Batch C).
+- **ObjectService-ACL für `spaces`/`channels` server-seitig erzwungen** (Issue #6,
+  vormals Lücke): Der ObjectService unterstützt jetzt **Klassen-/Namespace-ACL**
+  (`readRoles`/`writeRoles`/`editRoles`) **und** **Member-Level-ACL**
+  (`membershipField: "memberIds"` → prüft `sub ∈ data.memberIds` bei Read/Edit,
+  List/Search wird server-seitig auf Member + `isPublic` gefiltert). Das ersetzt
+  das frühere rein UI-seitige Gating: Anlegen/Ändern von Space-/Channel-Objekten
+  ist rollen-gegated, private Channels sind server-seitig (nicht nur in der UI)
+  verborgen. **Wichtig — Identität:** Der Client setzt `currentUser.id = JWT.sub`
+  (`AppContext.decodeJwtPayload`) und schreibt genau diesen Wert in `memberIds`,
+  passend zur `sub`-Prüfung von ObjectService **und** MessageService.
+  **Aktivierung (Ops, kein Client-Code):** Admin registriert die Klassen einmalig
+  via `POST /admin/classes` für `spaces`/`channels` und legt für member-gegatete
+  Collections einen Data-Index auf `memberIds` an (`POST /admin/indexes`).
 
 ## State-Management
 
