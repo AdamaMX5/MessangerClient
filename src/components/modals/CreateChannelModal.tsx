@@ -89,6 +89,10 @@ export default function CreateChannelModal({ isOpen, onClose, defaultCategoryNam
           isEncrypted,
           isPublic,
           memberIds: [currentUser!.id],
+          // Creator is the first member and the initial channel admin. The
+          // MessageService treats createdBy as a permanent admin regardless,
+          // but seeding adminIds keeps the UI in sync before the first reload.
+          adminIds: [currentUser!.id],
         },
       })
       await reloadSpaces()

@@ -21,6 +21,9 @@ export interface ChannelData {
   isEncrypted: boolean
   isPublic: boolean
   memberIds: string[]
+  // Channel admins. The creator (createdBy) is always an admin server-side even
+  // if absent here; the MessageService is the source of truth for this list.
+  adminIds?: string[]
   voiceParticipantIds?: string[]
   faqItems?: FaqItem[]
   onboardingSteps?: OnBoardingStep[]
@@ -49,6 +52,7 @@ function toChannel(obj: StoredObject<ChannelData>): Channel {
     isEncrypted: d.isEncrypted,
     isPublic: d.isPublic,
     memberIds: d.memberIds ?? [],
+    adminIds: d.adminIds ?? [],
     // Channel messages live in the MessageService, not in the channel object;
     // they are loaded on demand when the channel becomes active.
     messages: [],

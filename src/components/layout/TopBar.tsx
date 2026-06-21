@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { Hash, Volume2, Video, BookOpen, HelpCircle, Megaphone, Presentation, Rocket,
-         Phone, VideoIcon, Users, Search, Lock } from 'lucide-react'
+         Phone, VideoIcon, Users, UserCog, Search, Lock } from 'lucide-react'
 import { useApp } from '../../store/AppContext'
+import ChannelMembersModal from '../modals/ChannelMembersModal'
 import type { ChannelType } from '../../types'
 
 const CHANNEL_ICON: Record<ChannelType, React.ReactNode> = {
@@ -28,6 +30,7 @@ export default function TopBar() {
   const { activeChannelId, activeConversationId, activeSpaceId,
           getChannel, getConversation, users, currentUser,
           showUserList, toggleUserList } = useApp()
+  const [membersChannelId, setMembersChannelId] = useState<string | null>(null)
 
   const iconBtn = 'w-8 h-8 rounded-lg flex items-center justify-center text-discord-muted hover:text-discord-text hover:bg-discord-hover transition-all duration-150 cursor-pointer'
 
@@ -77,6 +80,7 @@ export default function TopBar() {
     const typeLabel = TYPE_LABEL[ch.type]
 
     return (
+      <>
       <header className={barBase} style={barStyle}>
         <div className="flex items-center gap-2 flex-1 min-w-0">
           {CHANNEL_ICON[ch.type]}
@@ -101,6 +105,12 @@ export default function TopBar() {
           )}
           <span className={iconBtn} title="Suchen"><Search size={17} /></span>
           <button
+            className={iconBtn}
+            onClick={() => setMembersChannelId(ch.id)} title="Mitglieder verwalten"
+          >
+            <UserCog size={17} />
+          </button>
+          <button
             className={`${iconBtn} ${showUserList ? 'text-discord-blurple bg-discord-active' : ''}`}
             onClick={toggleUserList} title="Mitglieder"
           >
@@ -108,6 +118,14 @@ export default function TopBar() {
           </button>
         </div>
       </header>
+      {membersChannelId && (
+        <ChannelMembersModal
+          channelId={membersChannelId}
+          isOpen={!!membersChannelId}
+          onClose={() => setMembersChannelId(null)}
+        />
+      )}
+      </>
     )
   }
 

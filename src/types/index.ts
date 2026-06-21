@@ -60,6 +60,9 @@ export interface Channel {
   onboardingSteps?: OnBoardingStep[];
   voiceParticipantIds?: string[];
   memberIds: string[];
+  // Channel admins (subset of memberIds in practice) — may manage membership.
+  // Enforced server-side by the MessageService; mirrored here for the UI.
+  adminIds?: string[];
   keyVersion?: number;
 }
 

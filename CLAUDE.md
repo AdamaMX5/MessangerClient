@@ -1,16 +1,18 @@
 # MessengerClient
 
+Dieser Client ist in Anlehnung zu Discord und spielt mit dem Virtuellen Office als cleane Version zusammen.
+
 ## Architecture
-See @../../.claude/MSArchitecture/services/.md für die eigene API dokumentation and architecture overview.
-See @../../.claude/MSArchitecture/services/AuthService.md für AuthService details (JWT verification, GITCLIENT role).
-See @../../.claude/MSArchitecture/services/ProfileService.md für ProfileService details (Profile von userids).
-See @../../.claude/MSArchitecture/services/ObjectService.md für ObjectService details (Persistenz).
-See @../../.claude/MSArchitecture/services/MediaService.md für MediaService details (Bilder und Videos ).
-See @../../.claude/MSArchitecture/services/EmailService.md für EmailService details (Sende Nachfragen zum Issue-Ersteller).
-See @../../.claude/MSArchitecture/services/EmailService.md für ExceptionService details (Sende Fehlerfälle).
-See @../../.claude/MSArchitecture/services/MessageService.md für MessageService details (Nachrichten zu anderen Usern).
-See @../../.claude/MSArchitecture/services/RecordingService.md für RecordingService details (Serverseitige Aufnahmen von LiveKit Meetings).
-See @../../.claude/MSArchitecture/services/GitService.md für GitService details (Issue creation)
+See @../../.claude/MSArchitecture/VirtualOfficeServer.md für den Zwischenlayer-Server (Presence WebSocket).
+See @../../.claude/MSArchitecture/AuthService.md für AuthService details (JWT verification, GITCLIENT role).
+See @../../.claude/MSArchitecture/ProfileService.md für ProfileService details (Profile von userids).
+See @../../.claude/MSArchitecture/ObjectService.md für ObjectService details (Persistenz).
+See @../../.claude/MSArchitecture/MediaService.md für MediaService details (Bilder und Videos ).
+See @../../.claude/MSArchitecture/EmailService.md für EmailService details (Sende Nachfragen zum Issue-Ersteller).
+See @../../.claude/MSArchitecture/ExceptionService.md für ExceptionService details (Sende Fehlerfälle).
+See @../../.claude/MSArchitecture/MessageService.md für MessageService details (Nachrichten zu anderen Usern).
+See @../../.claude/MSArchitecture/RecordingService.md für RecordingService details (Serverseitige Aufnahmen von LiveKit Meetings).
+See @../../.claude/MSArchitecture/GitService.md für GitService details (Issue creation)
 
 ## Quick Start
 
@@ -147,9 +149,18 @@ die ObjectService-Collections `spaces` bzw. `channels` (anlegen via
   entsprechenden Endpoint gibt.
 - **Presence nur für eigenen Nutzer**: Nur der eigene Online-Status ist real;
   fremde Nutzer defaulten auf `'offline'`.
-- **Keine Membership-ACL im ObjectService**: private Channels sind nur UI-seitig
-  verborgen — der ObjectService erzwingt keine Mitgliedschafts-Prüfung
-  (siehe Security-Review Batch C).
+- **Channel-Mitgliedschaft server-seitig erzwungen** (Issue #6): Lese-/Schreib-
+  zugriff auf Channel-Nachrichten **und** die Verwaltung der Mitgliedschaft
+  laufen über den **MessageService**, der die ACL durchsetzt (`sub ∈ memberIds`
+  für Inhalte; ChannelAdmin/Service-Admin/Self für Mitgliederverwaltung). Der
+  Client nutzt dafür `src/services/channelMembershipService.ts` (Mitglieder
+  laden/hinzufügen/entfernen, Admins ernennen/degradieren, selbst verlassen) und
+  schreibt `channels.data.memberIds`/`adminIds` **nicht mehr direkt** — der
+  MessageService persistiert die Änderung server-seitig via `X-API-Key`.
+- **ObjectService-ACL für `spaces`/`channels` noch offen**: Das Anlegen/Ändern
+  von Space-/Channel-**Objekten** ist weiterhin nur UI-seitig auf berechtigte
+  Rollen beschränkt; die server-seitige Namespace-ACL ist im ObjectService
+  getrackt (AdamaMX5/ObjectService#1, siehe Security-Review Batch C).
 
 ## State-Management
 
