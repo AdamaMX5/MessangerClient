@@ -4,6 +4,12 @@ import { gitService, type GitRepo, type CreateIssueResult } from '../../services
 
 const FALLBACK_REPO = 'MessangerClient'
 
+const LABEL_OPTIONS = [
+  { value: 'bug', label: 'Bug' },
+  { value: 'enhancement', label: 'Verbesserung' },
+  { value: 'question', label: 'Frage' },
+] as const
+
 interface Props {
   isOpen: boolean
   onClose: () => void
@@ -17,7 +23,7 @@ export default function CreateIssueModal({ isOpen, onClose }: Props) {
   const [repo, setRepo] = useState(FALLBACK_REPO)
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
-  const [labels, setLabels] = useState('')
+  const [labels, setLabels] = useState<string[]>([])
 
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -29,7 +35,7 @@ export default function CreateIssueModal({ isOpen, onClose }: Props) {
     setRepo(FALLBACK_REPO)
     setTitle('')
     setBody('')
-    setLabels('')
+    setLabels([])
     setError('')
     setResult(null)
     setSubmitting(false)
@@ -66,6 +72,10 @@ export default function CreateIssueModal({ isOpen, onClose }: Props) {
 
   if (!isOpen) return null
 
+  function toggleLabel(value: string) {
+    setLabels(prev => prev.includes(value) ? prev.filter(l => l !== value) : [...prev, value])
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
@@ -73,14 +83,13 @@ export default function CreateIssueModal({ isOpen, onClose }: Props) {
       setError('Titel und Beschreibung dürfen nicht leer sein.')
       return
     }
-    const labelList = labels.split(',').map(l => l.trim()).filter(Boolean)
     setSubmitting(true)
     try {
       const res = await gitService.createIssue({
         repo,
         title: title.trim(),
         body: body.trim(),
-        labels: labelList.length ? labelList : undefined,
+        labels: labels.length ? labels : undefined,
       })
       setResult(res)
     } catch (err) {
@@ -182,13 +191,30 @@ export default function CreateIssueModal({ isOpen, onClose }: Props) {
             </div>
 
             <div>
-              <label className={labelCls}>Labels</label>
-              <input
-                className={inputCls}
-                placeholder="bug, frontend (kommagetrennt)"
-                value={labels}
-                onChange={e => setLabels(e.target.value)}
-              />
+              <label className={labelCls}>Labels (optional)</label>
+              <div className="flex flex-wrap gap-2">
+                {LABEL_OPTIONS.map(opt => {
+                  const checked = labels.includes(opt.value)
+                  return (
+                    <label
+                      key={opt.value}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm cursor-pointer transition-all duration-150 select-none ${
+                        checked
+                          ? 'bg-discord-blurple/20 border-discord-blurple/60 text-discord-text'
+                          : 'bg-discord-input border-white/8 text-discord-muted hover:text-discord-text'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="accent-discord-blurple"
+                        checked={checked}
+                        onChange={() => toggleLabel(opt.value)}
+                      />
+                      {opt.label}
+                    </label>
+                  )
+                })}
+              </div>
             </div>
 
             {error && (
