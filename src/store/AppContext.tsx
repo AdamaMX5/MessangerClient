@@ -66,7 +66,10 @@ async function buildUserFromProfiles(jwt: JwtPayload): Promise<User> {
   return {
     id: jwt.sub ?? '',
     email: jwt.email ?? global?.email ?? '',
-    roles: (jwt.roles ?? []) as UserRole[],
+    // AuthService issues roles in upper case (e.g. "ADMIN"); the UI's UserRole
+    // type and all role gating use lower case. Normalize here so every consumer
+    // (space/channel creation, user list labels) compares consistently.
+    roles: (jwt.roles ?? []).map(r => r.toLowerCase()) as UserRole[],
     displayName: global?.displayName ?? jwt.email ?? '',
     avatarUrl: global?.avatar || undefined,
     status: (vo?.status as UserStatus) ?? 'online',
