@@ -189,4 +189,40 @@ frühere Mock-Logik in `AppContext`:
 - `objectService.ts` → ObjectService (Spaces/Channels/Forum-Posts; keine Nachrichten mehr)
 - `mediaService.ts` → MediaService (Avatar-Upload)
 - `gitService.ts` → GitService (Issue-Erstellung)
+- `e2eService.ts` → ProfileService (publicKey) + ObjectService (`e2e-keys`, `channel-keys`)
 - `meetingService.ts` → LiveKit / RecordingService (noch nicht aktiv genutzt)
+
+## Ende-zu-Ende-Verschlüsselung (Issue #8, Teil 1)
+
+Client-seitiger E2E-Layer auf Basis von **tweetnacl** (`src/services/crypto/`):
+
+- **Persönliches Keypair** (`nacl.box`, X25519): `publicKey` → ProfileService,
+  `secretKey` PBKDF2-SHA256 (600k Iter.) + AES-GCM-verschlüsselt als Backup in
+  ObjectService-Collection `e2e-keys` (ref `{ userId }`). Backup-Passwort =
+  **Login-Passwort**. Der `secretKey` lebt nur **in-memory** (`e2eKeyStore`, wie
+  `tokenStore`) und wird beim Logout gewiped.
+- **DMs**: `nacl.box` mit **ephemerem Absender-Keypair pro Nachricht** (Forward
+  Secrecy). Body = getaggter Base64-Envelope `e2e:1:<base64(json)>`.
+- **Channels**: symmetrischer Gruppenkey (`nacl.secretbox`, AES-256-Äquivalent),
+  je Mitglied an dessen `publicKey` gewrappt in Collection `channel-keys`
+  (ref `{ channelId, userId }`). Envelope trägt `keyVersion` (`kv`).
+- **Defensiv/feature-geflaggt**: Fehlt ein `publicKey`-Feld, eine Collection oder
+  ein Key, fällt jeder Pfad auf **Klartext** zurück — die App bleibt nutzbar.
+  Tests: `src/services/crypto/*.test.ts` (vitest, `npm test`).
+
+### Threat-Model / bewusste Grenzen (Teil 1)
+
+- **Fail-open-Downgrade**: Ist ein Key nicht verfügbar/Session locked, wird
+  **unverschlüsselt** gesendet, ohne sichtbare Warnung. Ein UI-Indikator für den
+  Verschlüsselungsstatus ist ein **Folge-Issue**.
+- **Keine Absender-Authentizität**: `nacl.box` mit ephemerem Key authentifiziert
+  den Absender nicht — die Vertrauenswürdigkeit von `senderId` kommt aus dem
+  server-seitig JWT-geprüften MessageService (`senderId = JWT.sub`), nicht aus
+  der Krypto. Für ein internes Tool akzeptabel.
+- **publicKey-Vertrauen**: Empfänger-`publicKey` wird ungeprüft vom ProfileService
+  geholt (kein Fingerprint-Pinning/TOFU). Vertraulichkeit hängt an der Integrität
+  des ProfileService — **Folge-Issue**.
+- **Keine Key-Rotation bei Mitgliederwechsel**: `e2eService.rotateChannelKey`
+  existiert, wird aber noch **nicht** automatisch von Add/Remove-Member
+  ausgelöst. Bis dahin erhalten neu hinzugefügte Mitglieder keinen Key und
+  entfernte behalten ihren (kein Backward-Secrecy) — **Folge-Issue**.

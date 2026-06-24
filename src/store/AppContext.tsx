@@ -6,6 +6,10 @@ import { profileService, type MessangerProfile } from '../services/profileServic
 import { messageService } from '../services/messageService'
 import { objectService } from '../services/objectService'
 import { clearAccessToken } from '../services/tokenStore'
+import { e2eService } from '../services/e2eService'
+import {
+  encryptDmBody, decryptDmBody, encryptChannelBody, decryptChannelBody,
+} from '../services/crypto/messageCrypto'
 import { buildMessage, deriveConversations, toUiMessage, upsertConversationMessage } from './dmHelpers'
 import { scanMemberships, sameMembership } from './membershipHelpers'
 import {
@@ -162,12 +166,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string, password: string): Promise<void> => {
     const session = await authService.login(email, password)
-    setCurrentUser(await buildCurrentUser(session.access_token))
+    const user = await buildCurrentUser(session.access_token)
+    setCurrentUser(user)
+    // Unlock (or first-time provision) the personal E2E keypair from the
+    // password-encrypted backup. Never throws; leaves E2E disabled on failure.
+    await e2eService.unlock(user.id, password)
   }, [])
 
   const register = useCallback(async (email: string, password: string, repassword: string): Promise<void> => {
     const session = await authService.registerComplete(email, password, repassword)
-    setCurrentUser(await buildCurrentUser(session.access_token))
+    const user = await buildCurrentUser(session.access_token)
+    setCurrentUser(user)
+    await e2eService.unlock(user.id, password)
   }, [])
 
   // Reload the current user's profile (e.g. after editing it) while preserving
@@ -192,6 +202,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // best effort; clear local token regardless
     } finally {
       clearAccessToken()
+      // Wipe all in-memory key material so no secret outlives the session.
+      e2eService.lock()
       loggingOutRef.current = false
     }
   }, [])
@@ -222,7 +234,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       messageService.getInbox(),
       messageService.getSent(),
     ])
+    // Decrypt the preview message of each conversation for display; plaintext
+    // and unopenable bodies are handled gracefully inside decryptDmBody.
     const derived = deriveConversations(inbox, sent, userId)
+      .map(c => ({ ...c, messages: c.messages.map(m => ({ ...m, body: decryptDmBody(m.body) })) }))
     setConversations(prev => derived.map(d => {
       const existing = prev.find(c => c.id === d.id)
       const partner = partnerProfiles.current.get(d.id)
@@ -316,7 +331,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       try {
         const msgs = await messageService.getConversation(partnerId)
         if (cancelled) return
-        const uiMsgs = msgs.map(m => toUiMessage(m, partnerId))
+        const uiMsgs = msgs.map(m => {
+          const ui = toUiMessage(m, partnerId)
+          return { ...ui, body: decryptDmBody(ui.body) }
+        })
         setConversations(prev => prev.map(c =>
           c.id === partnerId ? { ...c, messages: uiMsgs, isLoading: false } : c
         ))
@@ -401,18 +419,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!channel || !MESSAGE_CHANNEL_TYPES.has(channel.type)) return
 
     const channelId = activeChannelId
+    const userId = currentUser.id
     let cancelled = false
     const load = async () => {
       try {
         const msgs = await messageService.getChannelMessages(channelId)
         if (cancelled) return
-        updateChannel(channelId, { messages: msgs.map(m => toUiMessage(m, channelId)) })
+        updateChannel(channelId, { messages: msgs.map(m => {
+          const ui = toUiMessage(m, channelId)
+          return { ...ui, body: decryptChannelBody(channelId, ui.body) }
+        }) })
       } catch {
         // Not a member (403), unknown channel (404) or network error — keep
         // whatever is already on screen rather than wiping the feed.
       }
     }
-    void load()
+    // Load my channel group keys once before the first decrypt, then poll. The
+    // prepare is a no-op when the session is locked or the channel is plaintext.
+    void e2eService.prepareChannelKeys(channelId, userId).finally(() => { if (!cancelled) void load() })
     const id = setInterval(() => void load(), ACTIVE_CHANNEL_POLL_MS)
     return () => { cancelled = true; clearInterval(id) }
   }, [currentUser, activeChannelId, updateChannel])
@@ -447,8 +471,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setConversations(prev => upsertConversationMessage(prev, conversationId, currentUser.id, optimistic))
 
     try {
-      const sent = await messageService.send(conversationId, body)
-      const real = toUiMessage(sent, conversationId)
+      // Encrypt for the recipient if E2E is ready; otherwise send plaintext.
+      const wire = await encryptDmBody(conversationId, body)
+      const sent = await messageService.send(conversationId, wire)
+      const real = { ...toUiMessage(sent, conversationId), body: decryptDmBody(sent.body) }
       setConversations(prev => prev.map(c => c.id === conversationId
         ? { ...c, messages: c.messages.map(m => m.id === optimistic.id ? real : m), lastMessageAt: real.createdAt }
         : c))
@@ -469,8 +495,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSpaces(prev => mapChannelMessages(prev, channelId, msgs => [...msgs, optimistic]))
 
     try {
-      const sent = await messageService.sendChannelMessage(channelId, body)
-      const real = toUiMessage(sent, channelId)
+      // Encrypt with the channel group key if one is loaded; else plaintext.
+      const wire = encryptChannelBody(channelId, body)
+      const sent = await messageService.sendChannelMessage(channelId, wire)
+      const real = { ...toUiMessage(sent, channelId), body: decryptChannelBody(channelId, sent.body) }
       setSpaces(prev => mapChannelMessages(prev, channelId, msgs =>
         msgs.map(m => m.id === optimistic.id ? real : m)))
     } catch {

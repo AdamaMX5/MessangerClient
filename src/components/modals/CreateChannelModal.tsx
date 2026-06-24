@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { X, Plus } from 'lucide-react'
 import { useApp } from '../../store/AppContext'
 import { objectService } from '../../services/objectService'
+import { e2eService } from '../../services/e2eService'
 import type { ChannelData } from '../../store/spacesHelpers'
 import type { ChannelType } from '../../types'
 
@@ -95,6 +96,16 @@ export default function CreateChannelModal({ isOpen, onClose, defaultCategoryNam
           adminIds: [currentUser!.id],
         },
       })
+      // For E2E channels, generate the V1 group key and seal it to the creator
+      // (initially the only member). No-op if the session is locked / backend
+      // not ready — the channel then behaves as plaintext until keyed.
+      // NOTE: automatic key rotation on member add/remove is NOT wired yet — it
+      // is tracked as a follow-up of issue #8. Until then, members added later
+      // receive no key (and read plaintext) and removed members keep V1. See the
+      // E2E threat-model notes in CLAUDE.md.
+      if (isEncrypted) {
+        await e2eService.createChannelKey(created.id, [currentUser!.id])
+      }
       await reloadSpaces()
       setActiveChannel(created.id)
       onClose()

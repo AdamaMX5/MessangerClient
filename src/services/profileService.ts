@@ -100,4 +100,28 @@ export const profileService = {
     )
     return data.updateMessangerProfile
   },
+
+  // ─── E2E public key ────────────────────────────────────────────────────────
+  // Isolated from the shared GLOBAL_FIELDS query on purpose: if the backend does
+  // not yet expose a `publicKey` field these calls throw, but the main profile
+  // load (myGlobalProfile/globalProfile) stays unaffected. The e2eService wraps
+  // both in try/catch so the E2E feature simply stays disabled until the field
+  // exists server-side (defensive rollout).
+
+  async getPublicKey(userId: string): Promise<string | null> {
+    const data = await graphqlRequest<{ globalProfile: { publicKey?: string | null } | null }>(
+      BASE,
+      `query PubKey($userId: ID!) { globalProfile(userId: $userId) { publicKey } }`,
+      { userId },
+    )
+    return data.globalProfile?.publicKey ?? null
+  },
+
+  async setPublicKey(publicKey: string): Promise<void> {
+    await graphqlRequest<{ updateGlobalProfile: { publicKey?: string | null } }>(
+      BASE,
+      `mutation SetPubKey($input: GlobalProfileInput!) { updateGlobalProfile(input: $input) { publicKey } }`,
+      { input: { publicKey } },
+    )
+  },
 }
