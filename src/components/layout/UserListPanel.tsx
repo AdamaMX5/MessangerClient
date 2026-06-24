@@ -11,7 +11,7 @@ function UserRow({ user }: { user: User }) {
           {user.displayName}
         </p>
         <p className="text-[11px] text-discord-muted truncate leading-4">
-          {user.roles.includes('customer') ? 'Kunde' : user.roles.includes('admin') ? 'Admin' : 'Mitarbeiter'}
+          {user.roles.includes('customer') ? 'Kunde' : user.roles.includes('admin') ? 'Admin' : user.roles.includes('moderator') ? 'Moderator' : 'Mitarbeiter'}
         </p>
       </div>
     </div>

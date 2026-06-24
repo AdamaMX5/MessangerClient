@@ -1,5 +1,5 @@
 export type UserStatus = 'online' | 'away' | 'dnd' | 'offline';
-export type UserRole = 'admin' | 'employee' | 'channel-admin' | 'channel-assistant' | 'customer';
+export type UserRole = 'admin' | 'moderator' | 'employee' | 'channel-admin' | 'channel-assistant' | 'customer';
 export type ChannelType = 'text' | 'voice' | 'video' | 'forum' | 'onboarding' | 'faq' | 'stage' | 'announcement';
 
 export interface User {
