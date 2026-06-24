@@ -18,6 +18,10 @@ export interface Message {
   body: string;
   createdAt: string;
   readAt: string | null;
+  // True when the message arrived/was sent as an E2E envelope (decrypted for
+  // display). Undefined/false means it travelled as plaintext. Drives the
+  // per-message encryption indicator (#12).
+  encrypted?: boolean;
 }
 
 export interface ForumPost {

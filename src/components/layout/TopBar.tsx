@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Hash, Volume2, Video, BookOpen, HelpCircle, Megaphone, Presentation, Rocket,
-         Phone, VideoIcon, Users, UserCog, Search, Lock } from 'lucide-react'
+         Phone, VideoIcon, Users, UserCog, Search, Lock, Unlock } from 'lucide-react'
 import { useApp } from '../../store/AppContext'
 import ChannelMembersModal from '../modals/ChannelMembersModal'
 import type { ChannelType } from '../../types'
@@ -29,7 +29,13 @@ const TYPE_LABEL: Partial<Record<ChannelType, string>> = {
 export default function TopBar() {
   const { activeChannelId, activeConversationId, activeSpaceId,
           getChannel, getConversation, users, currentUser,
-          showUserList, toggleUserList } = useApp()
+          showUserList, toggleUserList, e2eUnlocked, channelE2EReady } = useApp()
+
+  // Shared E2E status badge: green lock when truly secure, amber open lock as a
+  // warning when messages would fall back to plaintext (#12).
+  const e2eBadge = (secure: boolean) => secure
+    ? <span title="Ende-zu-Ende verschlüsselt"><Lock size={11} className="text-discord-green flex-shrink-0" /></span>
+    : <span title="E2E-Sitzung gesperrt – Nachrichten können unverschlüsselt gesendet/empfangen werden"><Unlock size={11} className="text-discord-yellow flex-shrink-0" /></span>
   const [membersChannelId, setMembersChannelId] = useState<string | null>(null)
 
   const iconBtn = 'w-8 h-8 rounded-lg flex items-center justify-center text-discord-muted hover:text-discord-text hover:bg-discord-hover transition-all duration-150 cursor-pointer'
@@ -56,6 +62,8 @@ export default function TopBar() {
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <span className="text-discord-blurple font-bold text-base">@</span>
           <span className="font-display font-bold text-white text-sm truncate">{name}</span>
+          {/* DMs are E2E (nacl.box); secure only when the session is unlocked. */}
+          {!conv.isGroup && e2eBadge(e2eUnlocked)}
         </div>
         <div className="flex items-center gap-1">
           <span className={iconBtn} title="Anruf starten"><Phone size={17} /></span>
@@ -85,7 +93,7 @@ export default function TopBar() {
         <div className="flex items-center gap-2 flex-1 min-w-0">
           {CHANNEL_ICON[ch.type]}
           <span className="font-display font-bold text-white text-sm truncate">{ch.name}</span>
-          {ch.isEncrypted && <span title="E2E verschlüsselt"><Lock size={11} className="text-discord-muted flex-shrink-0" /></span>}
+          {ch.isEncrypted && e2eBadge(channelE2EReady(ch.id))}
           {typeLabel && (
             <span className="hidden md:inline text-[10px] font-bold uppercase tracking-widest text-discord-muted bg-discord-hover px-2 py-0.5 rounded-md flex-shrink-0">
               {typeLabel}

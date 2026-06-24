@@ -100,6 +100,12 @@ interface AppContextType {
   conversations: Conversation[]
   // Cached space/channel memberships, reconciled in the background after login.
   messangerProfile: MessangerProfile | null
+  // True while the personal E2E key is unlocked this session (#12). When false,
+  // encrypted channels fall back to plaintext — the UI warns about it.
+  e2eUnlocked: boolean
+  // Whether an encrypted channel has a usable group key loaded this session.
+  // False → messages would be sent as plaintext; the UI shows the warning state.
+  channelE2EReady: (channelId: string) => boolean
   reloadSpaces: () => Promise<void>
 
   // Navigation
@@ -135,6 +141,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [messangerProfile, setMessangerProfile] = useState<MessangerProfile | null>(null)
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [isAuthLoading, setIsAuthLoading] = useState(true)
+  // Whether the personal E2E key is unlocked this session. False after a silent
+  // refresh restore (no password) — surfaces the plaintext-downgrade risk in the
+  // UI rather than failing silently (#12).
+  const [e2eUnlocked, setE2eUnlocked] = useState(false)
+  // Channel ids for which a usable group key is loaded this session. Drives the
+  // channel encryption indicator precisely: an encrypted channel without a key
+  // (even with the session unlocked) still sends plaintext, so it must NOT show
+  // as secure (#12).
+  const [e2eReadyChannels, setE2eReadyChannels] = useState<Set<string>>(new Set())
 
   // Mirror currentUser into a ref so callbacks can read the latest identity
   // without taking it as a dependency (avoids recreating stable callbacks).
@@ -170,14 +185,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setCurrentUser(user)
     // Unlock (or first-time provision) the personal E2E keypair from the
     // password-encrypted backup. Never throws; leaves E2E disabled on failure.
-    await e2eService.unlock(user.id, password)
+    setE2eUnlocked(await e2eService.unlock(user.id, password))
   }, [])
 
   const register = useCallback(async (email: string, password: string, repassword: string): Promise<void> => {
     const session = await authService.registerComplete(email, password, repassword)
     const user = await buildCurrentUser(session.access_token)
     setCurrentUser(user)
-    await e2eService.unlock(user.id, password)
+    setE2eUnlocked(await e2eService.unlock(user.id, password))
   }, [])
 
   // Reload the current user's profile (e.g. after editing it) while preserving
@@ -204,6 +219,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       clearAccessToken()
       // Wipe all in-memory key material so no secret outlives the session.
       e2eService.lock()
+      setE2eUnlocked(false)
+      setE2eReadyChannels(new Set())
       loggingOutRef.current = false
     }
   }, [])
@@ -237,7 +254,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // Decrypt the preview message of each conversation for display; plaintext
     // and unopenable bodies are handled gracefully inside decryptDmBody.
     const derived = deriveConversations(inbox, sent, userId)
-      .map(c => ({ ...c, messages: c.messages.map(m => ({ ...m, body: decryptDmBody(m.body) })) }))
+      .map(c => ({ ...c, messages: c.messages.map(m => {
+        const d = decryptDmBody(m.body)
+        return { ...m, encrypted: d.encrypted, body: d.text }
+      }) }))
     setConversations(prev => derived.map(d => {
       const existing = prev.find(c => c.id === d.id)
       const partner = partnerProfiles.current.get(d.id)
@@ -333,7 +353,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (cancelled) return
         const uiMsgs = msgs.map(m => {
           const ui = toUiMessage(m, partnerId)
-          return { ...ui, body: decryptDmBody(ui.body) }
+          const d = decryptDmBody(ui.body)
+          return { ...ui, encrypted: d.encrypted, body: d.text }
         })
         setConversations(prev => prev.map(c =>
           c.id === partnerId ? { ...c, messages: uiMsgs, isLoading: false } : c
@@ -427,7 +448,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (cancelled) return
         updateChannel(channelId, { messages: msgs.map(m => {
           const ui = toUiMessage(m, channelId)
-          return { ...ui, body: decryptChannelBody(channelId, ui.body) }
+          const d = decryptChannelBody(channelId, ui.body)
+          return { ...ui, encrypted: d.encrypted, body: d.text }
         }) })
       } catch {
         // Not a member (403), unknown channel (404) or network error — keep
@@ -436,7 +458,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     // Load my channel group keys once before the first decrypt, then poll. The
     // prepare is a no-op when the session is locked or the channel is plaintext.
-    void e2eService.prepareChannelKeys(channelId, userId).finally(() => { if (!cancelled) void load() })
+    // Track whether a usable key exists so the UI shows the true E2E status.
+    void e2eService.prepareChannelKeys(channelId, userId)
+      .then(version => {
+        if (cancelled) return
+        setE2eReadyChannels(prev => {
+          const next = new Set(prev)
+          if (version !== null) next.add(channelId)
+          else next.delete(channelId)
+          return next
+        })
+      })
+      .finally(() => { if (!cancelled) void load() })
     const id = setInterval(() => void load(), ACTIVE_CHANNEL_POLL_MS)
     return () => { cancelled = true; clearInterval(id) }
   }, [currentUser, activeChannelId, updateChannel])
@@ -474,7 +507,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // Encrypt for the recipient if E2E is ready; otherwise send plaintext.
       const wire = await encryptDmBody(conversationId, body)
       const sent = await messageService.send(conversationId, wire)
-      const real = { ...toUiMessage(sent, conversationId), body: decryptDmBody(sent.body) }
+      const d = decryptDmBody(sent.body)
+      const real = { ...toUiMessage(sent, conversationId), encrypted: d.encrypted, body: d.text }
       setConversations(prev => prev.map(c => c.id === conversationId
         ? { ...c, messages: c.messages.map(m => m.id === optimistic.id ? real : m), lastMessageAt: real.createdAt }
         : c))
@@ -498,7 +532,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // Encrypt with the channel group key if one is loaded; else plaintext.
       const wire = encryptChannelBody(channelId, body)
       const sent = await messageService.sendChannelMessage(channelId, wire)
-      const real = { ...toUiMessage(sent, channelId), body: decryptChannelBody(channelId, sent.body) }
+      const d = decryptChannelBody(channelId, sent.body)
+      const real = { ...toUiMessage(sent, channelId), encrypted: d.encrypted, body: d.text }
       setSpaces(prev => mapChannelMessages(prev, channelId, msgs =>
         msgs.map(m => m.id === optimistic.id ? real : m)))
     } catch {
@@ -561,10 +596,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const getConversation = useCallback((id: string) =>
     conversations.find(c => c.id === id), [conversations])
 
+  const channelE2EReady = useCallback((id: string) =>
+    e2eReadyChannels.has(id), [e2eReadyChannels])
+
   // Set default logged-in user on mount (demo convenience)
   const value: AppContextType = {
     currentUser, isAuthLoading, checkEmail, login, register, logout, refreshProfile,
-    users, spaces, conversations, messangerProfile, reloadSpaces: loadSpaces,
+    users, spaces, conversations, messangerProfile, e2eUnlocked, channelE2EReady, reloadSpaces: loadSpaces,
     activeSpaceId, activeChannelId, activeConversationId,
     setActiveSpace, setActiveChannel, setActiveConversation,
     showUserList, toggleUserList,

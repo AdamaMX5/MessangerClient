@@ -40,7 +40,7 @@ function EmptyState() {
 function MainContent() {
   const { activeChannelId, activeConversationId, activeSpaceId,
           getChannel, getConversation, currentUser, getUser,
-          sendDM, sendChannelMessage } = useApp()
+          sendDM, sendChannelMessage, e2eUnlocked, channelE2EReady } = useApp()
 
   if (!activeSpaceId && activeConversationId) {
     const conv = getConversation(activeConversationId)
@@ -52,6 +52,9 @@ function MainContent() {
           : <ChatArea messages={conv.messages} currentUserId={currentUser.id} getUser={getUser} />}
         <MessageInput
           placeholder="Nachricht schreiben…"
+          warning={!conv.isGroup && !e2eUnlocked
+            ? 'E2E-Sitzung gesperrt – Nachrichten werden unverschlüsselt gesendet.'
+            : undefined}
           onSend={body => { void sendDM(activeConversationId, body) }}
         />
       </>
@@ -75,6 +78,9 @@ function MainContent() {
           <ChatArea messages={ch.messages} currentUserId={currentUser.id} getUser={getUser} />
           <MessageInput
             placeholder={`Nachricht an #${ch.name}`}
+            warning={ch.isEncrypted && !channelE2EReady(ch.id)
+              ? 'Kein Channel-Schlüssel geladen – Nachrichten werden unverschlüsselt gesendet.'
+              : undefined}
             onSend={body => { void sendChannelMessage(activeChannelId, body) }}
           />
         </>

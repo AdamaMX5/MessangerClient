@@ -214,9 +214,22 @@ Client-seitiger E2E-Layer auf Basis von **tweetnacl** (`src/services/crypto/`):
 
 ### Threat-Model / bewusste Grenzen (Teil 1)
 
-- **Fail-open-Downgrade**: Ist ein Key nicht verfügbar/Session locked, wird
-  **unverschlüsselt** gesendet, ohne sichtbare Warnung. Ein UI-Indikator für den
-  Verschlüsselungsstatus ist ein **Folge-Issue**.
+- **Fail-open-Downgrade** (Issue #12, sichtbar gemacht): Ist ein Key nicht
+  verfügbar/Session locked, wird weiterhin **unverschlüsselt** gesendet — aber
+  nicht mehr stillschweigend. Indikatoren:
+  - **Pro Nachricht** ein grünes Schloss (`Message.encrypted`). Der Flag ist
+    **fälschungssicher**: er wird aus dem **erfolgreichen Entschlüsseln**
+    abgeleitet (`decryptDmBody`/`decryptChannelBody` liefern `{ text, encrypted }`,
+    `encrypted` nur bei real geöffnetem Envelope) — nicht aus dem Tag-Präfix. Ein
+    Klartext, der wörtlich mit `e2e:1:` beginnt, erhält **kein** Schloss.
+  - **Channel-Header**: grünes Schloss nur, wenn ein **Gruppenkey geladen** ist
+    (`channelE2EReady(channelId)`, gespeist aus `prepareChannelKeys`) — nicht
+    schon bei bloß entsperrter Sitzung; sonst gelbes offenes Schloss.
+  - **DM-Header**: grün/gelb je `e2eUnlocked` (DMs nutzen `nacl.box`).
+  - **Warnzeile** über dem Eingabefeld, wenn ein verschlüsselter Channel keinen
+    Key hat bzw. die DM-Sitzung gesperrt ist.
+  Das *Fehlen* des Schlosses an einer Nachricht ist das eigentliche
+  Downgrade-Signal. Tests: `src/services/crypto/messageCrypto.test.ts`.
 - **Keine Absender-Authentizität**: `nacl.box` mit ephemerem Key authentifiziert
   den Absender nicht — die Vertrauenswürdigkeit von `senderId` kommt aus dem
   server-seitig JWT-geprüften MessageService (`senderId = JWT.sub`), nicht aus

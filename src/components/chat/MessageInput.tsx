@@ -1,13 +1,16 @@
 import { useState, type KeyboardEvent } from 'react'
-import { Send, Smile, Paperclip } from 'lucide-react'
+import { Send, Smile, Paperclip, ShieldAlert } from 'lucide-react'
 
 interface Props {
   placeholder?: string
   onSend: (body: string) => void | Promise<void>
   disabled?: boolean
+  // Optional inline warning shown above the input, e.g. when an encrypted
+  // channel falls back to plaintext because the E2E session is locked (#12).
+  warning?: string
 }
 
-export default function MessageInput({ placeholder = 'Nachricht eingeben…', onSend, disabled }: Props) {
+export default function MessageInput({ placeholder = 'Nachricht eingeben…', onSend, disabled, warning }: Props) {
   const [value, setValue] = useState('')
   const [focused, setFocused] = useState(false)
 
@@ -29,6 +32,12 @@ export default function MessageInput({ placeholder = 'Nachricht eingeben…', on
 
   return (
     <div className="px-4 pb-4 pt-2 flex-shrink-0">
+      {warning && (
+        <div className="flex items-center gap-2 mb-2 px-3 py-2 rounded-lg bg-discord-yellow/10 border border-discord-yellow/25 text-discord-yellow text-xs">
+          <ShieldAlert size={14} className="flex-shrink-0" />
+          <span>{warning}</span>
+        </div>
+      )}
       <div
         className="flex items-end gap-2 px-3 py-2 rounded-xl transition-all duration-200"
         style={{

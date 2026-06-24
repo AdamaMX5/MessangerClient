@@ -17,6 +17,16 @@ import { isEnvelope } from './envelope'
 // not a member). Keeps ciphertext off the screen without dropping the message.
 const LOCKED_PLACEHOLDER = '🔒 Verschlüsselte Nachricht (Sitzung gesperrt)'
 
+// Result of decrypting a body for display. `encrypted` is true ONLY when the
+// body was a real envelope that was successfully opened — never merely because
+// it carried the envelope tag. This makes the per-message lock indicator (#12)
+// unforgeable: a plaintext body that happens to start with the tag, or an
+// envelope that cannot be opened, never shows as verified-encrypted.
+export interface DecryptedBody {
+  text: string
+  encrypted: boolean
+}
+
 // ─── DMs ─────────────────────────────────────────────────────────────────────
 
 // Encrypt a DM body for `recipientId` if both sides are E2E-ready, else return
@@ -32,13 +42,17 @@ export async function encryptDmBody(recipientId: string, plaintext: string): Pro
   }
 }
 
-// Decrypt a DM body for display. Plaintext bodies pass through; sealed bodies we
-// cannot open render as a locked placeholder.
-export function decryptDmBody(body: string): string {
-  if (!isEnvelope(body)) return body
+// Decrypt a DM body for display. Plaintext bodies pass through (encrypted:false);
+// sealed bodies we cannot open render as a locked placeholder (encrypted:false —
+// not verified-readable). Only a successful open yields encrypted:true.
+export function decryptDmBody(body: string): DecryptedBody {
+  if (!isEnvelope(body)) return { text: body, encrypted: false }
   const secret = e2eKeyStore.getSecretKey()
-  if (!secret) return LOCKED_PLACEHOLDER
-  return openFromSender(body, secret) ?? LOCKED_PLACEHOLDER
+  if (!secret) return { text: LOCKED_PLACEHOLDER, encrypted: false }
+  const opened = openFromSender(body, secret)
+  return opened === null
+    ? { text: LOCKED_PLACEHOLDER, encrypted: false }
+    : { text: opened, encrypted: true }
 }
 
 // ─── Channels ──────────────────────────────────────────────────────────────
@@ -58,12 +72,17 @@ export function encryptChannelBody(channelId: string, plaintext: string): string
   }
 }
 
-// Decrypt a channel body using the group key of its embedded version.
-export function decryptChannelBody(channelId: string, body: string): string {
-  if (!isEnvelope(body)) return body
+// Decrypt a channel body using the group key of its embedded version. Only a
+// successful open yields encrypted:true; a tagged-but-invalid body (e.g. a
+// plaintext "e2e:1:…" forgery) has no valid version → passes through unchanged.
+export function decryptChannelBody(channelId: string, body: string): DecryptedBody {
+  if (!isEnvelope(body)) return { text: body, encrypted: false }
   const version = channelKeyVersion(body)
-  if (version === null) return body
+  if (version === null) return { text: body, encrypted: false }
   const key = e2eKeyStore.getChannelKey(channelId, version)
-  if (!key) return LOCKED_PLACEHOLDER
-  return openFromChannel(body, key) ?? LOCKED_PLACEHOLDER
+  if (!key) return { text: LOCKED_PLACEHOLDER, encrypted: false }
+  const opened = openFromChannel(body, key)
+  return opened === null
+    ? { text: LOCKED_PLACEHOLDER, encrypted: false }
+    : { text: opened, encrypted: true }
 }
