@@ -23,6 +23,9 @@ import {
 import { encryptSecretKey, decryptSecretKey, type KeyBackupBlob } from './crypto/keyBackup'
 import { keyPinning, type TofuResult } from './crypto/keyPinning'
 import { fingerprint } from './crypto/fingerprint'
+import {
+  deriveKeyringKey, encryptKeyring, decryptKeyring, type KeyringBlob,
+} from './crypto/channelKeyring'
 
 const APP = 'MessangerClient'
 const CHANNEL_KEYS = 'channel-keys'
@@ -60,6 +63,53 @@ const publicKeyCache = new Map<string, string | null>()
 // TOFU trust state per user as last resolved this session (userId → KeyTrust).
 const keyTrustCache = new Map<string, KeyTrust>()
 
+// In-memory key-encryption key for the password-encrypted channel keyring (#14)
+// plus its stable salt. Derived from the login password at unlock and kept only
+// in memory (never the password); wiped on logout. Used to re-encrypt the keyring
+// when new channel keys are folded in, without re-prompting for the password.
+let keyringKek: CryptoKey | null = null
+let keyringSalt: string | null = null
+
+// Re-encrypt the current set of loaded channel keys and persist them into the
+// user's ChatProfil. Best-effort: a missing KEK (locked) or backend error simply
+// skips persistence — the keys are still distributed via `channel-keys`.
+async function persistChannelKeyring(): Promise<void> {
+  const kek = keyringKek
+  const salt = keyringSalt
+  if (!kek || !salt) return
+  try {
+    const blob = await encryptKeyring(e2eKeyStore.exportChannelKeys(), kek, salt)
+    // Guard against a logout/re-login during the await: if the session KEK is no
+    // longer the one we encrypted with, drop this write so a stale keyring can
+    // never land in the profile after lock() (audit #14, finding #3).
+    if (keyringKek !== kek) return
+    await profileService.setMyChannelKeyring(JSON.stringify(blob))
+  } catch (err) {
+    console.warn('[e2e] persisting channel keyring failed', err)
+  }
+}
+
+// Derive the keyring KEK at unlock and load any stored keyring into the store.
+// Never throws: a corrupt/incompatible keyring is ignored (keys remain
+// obtainable via the per-member `channel-keys` distribution path).
+async function loadChannelKeyring(blobStr: string | null, password: string): Promise<void> {
+  try {
+    if (blobStr) {
+      const blob = JSON.parse(blobStr) as KeyringBlob
+      const { kek } = await deriveKeyringKey(password, blob.salt)
+      keyringKek = kek
+      keyringSalt = blob.salt
+      e2eKeyStore.importChannelKeys(await decryptKeyring(blob, kek))
+    } else {
+      const { kek, salt } = await deriveKeyringKey(password)
+      keyringKek = kek
+      keyringSalt = salt
+    }
+  } catch (err) {
+    console.warn('[e2e] loading channel keyring failed; continuing without it', err)
+  }
+}
+
 // Pure helper: the next group-key version given the current maximum (0 if no key
 // exists yet). Exposed for unit testing the rotation versioning.
 export function nextVersion(currentMax: number): number {
@@ -90,13 +140,15 @@ export const e2eService = {
   // if E2E is now active, false otherwise. Never throws.
   async unlock(userId: string, password: string): Promise<boolean> {
     try {
-      const { publicKey, keyBackup } = await profileService.getMyE2EKeys()
+      const { publicKey, keyBackup, channelKeyring } = await profileService.getMyE2EKeys()
       if (publicKey && keyBackup) {
         const blob = JSON.parse(keyBackup) as KeyBackupBlob
         const secretKey = await decryptSecretKey(blob, password)
         e2eKeyStore.setKeyPair(publicKey, secretKey)
         publicKeyCache.set(userId, publicKey)
         keyPinning.setOwner(userId)
+        // Load the password-encrypted channel keyring (all versions) — #14.
+        await loadChannelKeyring(channelKeyring, password)
         return true
       }
       return await this.provision(userId, password)
@@ -116,6 +168,8 @@ export const e2eService = {
     publicKeyCache.set(userId, kp.publicKey)
     keyPinning.setOwner(userId)
     e2eKeyStore.setKeyPair(kp.publicKey, kp.secretKey)
+    // Fresh keyring KEK for this new account (no channel keys yet) — #14.
+    await loadChannelKeyring(null, password)
     return true
   },
 
@@ -125,6 +179,8 @@ export const e2eService = {
     e2eKeyStore.clear()
     publicKeyCache.clear()
     keyTrustCache.clear()
+    keyringKek = null
+    keyringSalt = null
     keyPinning.setOwner('') // back to the 'anon' scope until next login
   },
 
@@ -184,10 +240,15 @@ export const e2eService = {
       const objs = await objectService.list<ChannelKeyData>(CHANNEL_KEYS, {
         ref: { channelId, userId }, limit: 100,
       })
+      let added = false
       for (const o of objs) {
+        if (e2eKeyStore.getChannelKey(channelId, o.data.version)) continue
         const key = unwrapChannelKey(o.data.wrappedKey, secret)
-        if (key) e2eKeyStore.setChannelKey(channelId, o.data.version, key)
+        if (key) { e2eKeyStore.setChannelKey(channelId, o.data.version, key); added = true }
       }
+      // Fold newly unwrapped keys into the password-encrypted keyring so other
+      // devices get them without re-unwrapping, and they survive a keypair rotation.
+      if (added) void persistChannelKeyring()
     } catch (err) {
       console.warn('[e2e] loading channel keys failed', err)
     }
@@ -277,6 +338,8 @@ export const e2eService = {
       })))
     // Only adopt the key locally once all uploads succeeded.
     e2eKeyStore.setChannelKey(channelId, version, groupKey)
+    // Persist the new version into my password-encrypted keyring (#14).
+    void persistChannelKeyring()
     return memberIds.length - valid.length
   },
 }

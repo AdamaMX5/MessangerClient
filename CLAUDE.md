@@ -208,6 +208,22 @@ Client-seitiger E2E-Layer auf Basis von **tweetnacl** (`src/services/crypto/`):
 - **Channels**: symmetrischer Gruppenkey (`nacl.secretbox`, AES-256-Äquivalent),
   je Mitglied an dessen `publicKey` gewrappt in Collection `channel-keys`
   (ref `{ channelId, userId }`). Envelope trägt `keyVersion` (`kv`).
+- **Channel-Keyring (Multi-Device, Issue #14)**: Zusätzlich zur gewrappten
+  Verteilung werden die **eigenen** Channel-Keys **aller Versionen** (inkl.
+  historischer) als ein passwortverschlüsselter Blob im ChatProfil-Feld
+  `channelKeyring` (`MessangerProfile`) gehalten (`channelKeyring.ts`, AES-GCM mit
+  einem aus dem Login-Passwort via PBKDF2 abgeleiteten **KEK**, der nur
+  **in-memory** lebt und bei Logout gewiped wird — das Passwort selbst wird nie
+  gespeichert). Beim Unlock wird der Keyring entschlüsselt und alle Versionen in
+  den Key-Store geladen; neue Keys (Unwrap aus `channel-keys` oder Rotation)
+  werden in den Keyring gefaltet und persistiert. Damit kann jedes Gerät und
+  VirtualOffice via ChatProfil+Passwort alle (auch alten) Nachrichten
+  entschlüsseln, und die Keys überleben eine Rotation des persönlichen Keypairs.
+  **ProfileService-Annahme:** `channelKeyring` darf — wie `keyBackup` — **nur** im
+  eigenen Profil (`myMessangerProfile`) lesbar sein, nicht im fremd-lesbaren
+  `messangerProfile(userId)`-Resolver. (Ein Geräte-Cache für entschlüsselte
+  Nachrichten wurde bewusst **nicht** umgesetzt — Klartext-at-rest widerspräche
+  dem Threat-Model „Mitarbeitergerät ist das größte Risiko".)
 - **Defensiv/feature-geflaggt**: Fehlt ein `publicKey`-Feld, eine Collection oder
   ein Key, fällt jeder Pfad auf **Klartext** zurück — die App bleibt nutzbar.
   Tests: `src/services/crypto/*.test.ts` (vitest, `npm test`).

@@ -35,6 +35,25 @@ export const e2eKeyStore = {
   getChannelKey(channelId: string, version: number): string | null {
     return channelKeys.get(channelId)?.get(version) ?? null
   },
+
+  // Dump all loaded channel keys as a plain object (channelId → version → key)
+  // for the password-encrypted keyring (#14).
+  exportChannelKeys(): Record<string, Record<string, string>> {
+    const out: Record<string, Record<string, string>> = {}
+    for (const [channelId, versions] of channelKeys) {
+      out[channelId] = Object.fromEntries(versions)
+    }
+    return out
+  },
+
+  // Load channel keys from a keyring object, merging into whatever is present.
+  importChannelKeys(ring: Record<string, Record<string, string>>): void {
+    for (const [channelId, versions] of Object.entries(ring)) {
+      for (const [version, keyB64] of Object.entries(versions)) {
+        this.setChannelKey(channelId, Number(version), keyB64)
+      }
+    }
+  },
   latestChannelVersion(channelId: string): number | null {
     const versions = channelKeys.get(channelId)
     if (!versions || versions.size === 0) return null

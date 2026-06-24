@@ -113,14 +113,18 @@ export const profileService = {
   // e2eService) while the membership flow (spaceIds/channelIds) stays unaffected.
 
   // My own ChatProfil E2E fields (used to unlock or first-time provision).
-  async getMyE2EKeys(): Promise<{ publicKey: string | null; keyBackup: string | null }> {
-    const data = await graphqlRequest<{ myMessangerProfile: { publicKey?: string | null; keyBackup?: string | null } | null }>(
+  // `channelKeyring` is the password-encrypted blob of all my channel group keys
+  // (all versions) for multi-device persistence (#14) — like keyBackup it must
+  // only be readable on the own profile, never via messangerProfile(userId).
+  async getMyE2EKeys(): Promise<{ publicKey: string | null; keyBackup: string | null; channelKeyring: string | null }> {
+    const data = await graphqlRequest<{ myMessangerProfile: { publicKey?: string | null; keyBackup?: string | null; channelKeyring?: string | null } | null }>(
       BASE,
-      `query { myMessangerProfile { publicKey keyBackup } }`,
+      `query { myMessangerProfile { publicKey keyBackup channelKeyring } }`,
     )
     return {
       publicKey: data.myMessangerProfile?.publicKey ?? null,
       keyBackup: data.myMessangerProfile?.keyBackup ?? null,
+      channelKeyring: data.myMessangerProfile?.channelKeyring ?? null,
     }
   },
 
@@ -130,6 +134,15 @@ export const profileService = {
       BASE,
       `mutation SetE2E($input: MessangerProfileInput!) { updateMessangerProfile(input: $input) { publicKey } }`,
       { input: { publicKey, keyBackup } },
+    )
+  },
+
+  // Persist the password-encrypted channel keyring into my own ChatProfil (#14).
+  async setMyChannelKeyring(channelKeyring: string): Promise<void> {
+    await graphqlRequest<{ updateMessangerProfile: { publicKey?: string | null } }>(
+      BASE,
+      `mutation SetKeyring($input: MessangerProfileInput!) { updateMessangerProfile(input: $input) { publicKey } }`,
+      { input: { channelKeyring } },
     )
   },
 
