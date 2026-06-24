@@ -101,27 +101,56 @@ export const profileService = {
     return data.updateMessangerProfile
   },
 
-  // ─── E2E public key ────────────────────────────────────────────────────────
-  // Isolated from the shared GLOBAL_FIELDS query on purpose: if the backend does
-  // not yet expose a `publicKey` field these calls throw, but the main profile
-  // load (myGlobalProfile/globalProfile) stays unaffected. The e2eService wraps
-  // both in try/catch so the E2E feature simply stays disabled until the field
-  // exists server-side (defensive rollout).
+  // ─── E2E key material in the ChatProfil (MessangerProfile) ──────────────────
+  // The personal E2E key lives in the user's app-specific MessangerProfile (the
+  // "ChatProfil"), not in the GlobalProfile: it is chat-domain data, and other
+  // apps (e.g. VirtualOffice) read a user's ChatProfil to obtain their public
+  // key. `publicKey` is the Base64 X25519 public key; `keyBackup` is the
+  // JSON-serialized, password-encrypted secret-key blob (see keyBackup.ts).
+  //
+  // These selections are isolated from the shared MESSANGER_FIELDS query: if the
+  // backend does not expose the fields yet, only the E2E calls throw (caught by
+  // e2eService) while the membership flow (spaceIds/channelIds) stays unaffected.
 
-  async getPublicKey(userId: string): Promise<string | null> {
-    const data = await graphqlRequest<{ globalProfile: { publicKey?: string | null } | null }>(
+  // My own ChatProfil E2E fields (used to unlock or first-time provision).
+  async getMyE2EKeys(): Promise<{ publicKey: string | null; keyBackup: string | null }> {
+    const data = await graphqlRequest<{ myMessangerProfile: { publicKey?: string | null; keyBackup?: string | null } | null }>(
       BASE,
-      `query PubKey($userId: ID!) { globalProfile(userId: $userId) { publicKey } }`,
-      { userId },
+      `query { myMessangerProfile { publicKey keyBackup } }`,
     )
-    return data.globalProfile?.publicKey ?? null
+    return {
+      publicKey: data.myMessangerProfile?.publicKey ?? null,
+      keyBackup: data.myMessangerProfile?.keyBackup ?? null,
+    }
   },
 
-  async setPublicKey(publicKey: string): Promise<void> {
-    await graphqlRequest<{ updateGlobalProfile: { publicKey?: string | null } }>(
+  // Publish my public key + encrypted backup into my own ChatProfil.
+  async setMyE2EKeys(publicKey: string, keyBackup: string): Promise<void> {
+    await graphqlRequest<{ updateMessangerProfile: { publicKey?: string | null } }>(
       BASE,
-      `mutation SetPubKey($input: GlobalProfileInput!) { updateGlobalProfile(input: $input) { publicKey } }`,
-      { input: { publicKey } },
+      `mutation SetE2E($input: MessangerProfileInput!) { updateMessangerProfile(input: $input) { publicKey } }`,
+      { input: { publicKey, keyBackup } },
     )
+  },
+
+  // Resolve another user's public key from their ChatProfil. Falls back to the
+  // GlobalProfile if the ChatProfil-by-userId query is unavailable, so the
+  // feature still works against a backend that only exposes the global field.
+  async getPublicKey(userId: string): Promise<string | null> {
+    try {
+      const data = await graphqlRequest<{ messangerProfile: { publicKey?: string | null } | null }>(
+        BASE,
+        `query PubKey($userId: ID!) { messangerProfile(userId: $userId) { publicKey } }`,
+        { userId },
+      )
+      return data.messangerProfile?.publicKey ?? null
+    } catch {
+      const data = await graphqlRequest<{ globalProfile: { publicKey?: string | null } | null }>(
+        BASE,
+        `query PubKeyG($userId: ID!) { globalProfile(userId: $userId) { publicKey } }`,
+        { userId },
+      )
+      return data.globalProfile?.publicKey ?? null
+    }
   },
 }

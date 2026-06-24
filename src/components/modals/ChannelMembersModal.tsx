@@ -6,6 +6,7 @@ import {
   channelMembershipService,
   type ChannelMembership,
 } from '../../services/channelMembershipService'
+import { e2eService } from '../../services/e2eService'
 
 interface Props {
   channelId: string
@@ -26,6 +27,8 @@ export default function ChannelMembersModal({ channelId, isOpen, onClose }: Prop
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [addUserId, setAddUserId] = useState('')
+  // Status of the E2E group-key rotation triggered after a membership change.
+  const [rotationNote, setRotationNote] = useState('')
 
   // Fetch the authoritative membership snapshot whenever the modal opens.
   useEffect(() => {
@@ -34,6 +37,7 @@ export default function ChannelMembersModal({ channelId, isOpen, onClose }: Prop
     setLoading(true)
     setError('')
     setAddUserId('')
+    setRotationNote('')
     channelMembershipService.getMembers(channelId)
       .then(m => { if (!cancelled) setMembership(m) })
       .catch(err => { if (!cancelled) setError(err instanceof Error ? err.message : 'Mitglieder konnten nicht geladen werden.') })
@@ -55,8 +59,14 @@ export default function ChannelMembersModal({ channelId, isOpen, onClose }: Prop
 
   // Run a membership mutation, fold its returned snapshot into local state and
   // propagate the change to the rest of the app (sidebar/profile). `targetId`
-  // drives the per-row busy indicator.
-  async function run(targetId: string, op: () => Promise<ChannelMembership>): Promise<boolean> {
+  // drives the per-row busy indicator. When `rotateKeys` is set (membership add/
+  // remove on an encrypted channel) and the actor is a channel admin, a new E2E
+  // group key is rotated to the resulting member set afterwards (#11).
+  async function run(
+    targetId: string,
+    op: () => Promise<ChannelMembership>,
+    rotateKeys = false,
+  ): Promise<boolean> {
     setBusyId(targetId)
     setError('')
     try {
@@ -64,12 +74,32 @@ export default function ChannelMembersModal({ channelId, isOpen, onClose }: Prop
       setMembership(next)
       void reloadSpaces()
       void refreshProfile()
+      if (rotateKeys && channel?.isEncrypted && isAdmin) {
+        await rotateGroupKey(next.memberIds)
+      }
       return true
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Aktion fehlgeschlagen.')
       return false
     } finally {
       setBusyId(null)
+    }
+  }
+
+  // Rotate the channel's E2E group key to a new version for exactly `memberIds`.
+  // Key rotation requires an online admin client (the server never sees keys);
+  // surfaces a hint if it could not complete so the gap is visible rather than a
+  // silent downgrade. A removed member never receives the new version (backward
+  // secrecy); a newly added member can read from the new version onward.
+  async function rotateGroupKey(memberIds: string[]): Promise<void> {
+    setRotationNote('🔄 Schlüssel werden rotiert …')
+    const res = await e2eService.rotateForMembership(channelId, memberIds)
+    if (res.version === null) {
+      setRotationNote('⚠️ Schlüssel-Rotation ausstehend — ein Channel-Admin muss online sein.')
+    } else if (res.skipped > 0) {
+      setRotationNote(`🔒 Rotiert (Version ${res.version}), aber ${res.skipped} Mitglied${res.skipped === 1 ? '' : 'er'} ohne Schlüssel übersprungen.`)
+    } else {
+      setRotationNote(`🔒 Schlüssel rotiert (Version ${res.version}).`)
     }
   }
 
@@ -132,7 +162,7 @@ export default function ChannelMembersModal({ channelId, isOpen, onClose }: Prop
               type="button"
               className="bg-discord-blurple text-discord-sidebar font-bold px-3 rounded-lg text-sm flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed hover:brightness-110 transition-all"
               disabled={!addUserId || rowBusy(addUserId)}
-              onClick={() => addUserId && run(addUserId, () => channelMembershipService.addMember(channelId, addUserId)).then(() => setAddUserId(''))}
+              onClick={() => addUserId && run(addUserId, () => channelMembershipService.addMember(channelId, addUserId), true).then(() => setAddUserId(''))}
             >
               <UserPlus size={15} /> Add
             </button>
@@ -141,6 +171,10 @@ export default function ChannelMembersModal({ channelId, isOpen, onClose }: Prop
 
         {error && (
           <p className="text-discord-red text-xs bg-discord-red/10 rounded-lg px-3 py-2 border border-discord-red/20 mb-3">{error}</p>
+        )}
+
+        {rotationNote && (
+          <p className="text-discord-muted text-xs bg-discord-input/40 rounded-lg px-3 py-2 border border-white/5 mb-3">{rotationNote}</p>
         )}
 
         <div className="max-h-72 overflow-y-auto space-y-1 -mx-1 px-1">
@@ -191,7 +225,7 @@ export default function ChannelMembersModal({ channelId, isOpen, onClose }: Prop
                       <button
                         type="button" className={`${ghostBtn} hover:text-discord-red`} title="Entfernen"
                         disabled={rowBusy(id)}
-                        onClick={() => run(id, () => channelMembershipService.removeMember(channelId, id))}
+                        onClick={() => run(id, () => channelMembershipService.removeMember(channelId, id), true)}
                       >
                         <UserMinus size={15} />
                       </button>

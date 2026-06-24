@@ -189,16 +189,18 @@ frühere Mock-Logik in `AppContext`:
 - `objectService.ts` → ObjectService (Spaces/Channels/Forum-Posts; keine Nachrichten mehr)
 - `mediaService.ts` → MediaService (Avatar-Upload)
 - `gitService.ts` → GitService (Issue-Erstellung)
-- `e2eService.ts` → ProfileService (publicKey) + ObjectService (`e2e-keys`, `channel-keys`)
+- `e2eService.ts` → ProfileService (ChatProfil: publicKey + Key-Backup) + ObjectService (`channel-keys`)
 - `meetingService.ts` → LiveKit / RecordingService (noch nicht aktiv genutzt)
 
 ## Ende-zu-Ende-Verschlüsselung (Issue #8, Teil 1)
 
 Client-seitiger E2E-Layer auf Basis von **tweetnacl** (`src/services/crypto/`):
 
-- **Persönliches Keypair** (`nacl.box`, X25519): `publicKey` → ProfileService,
-  `secretKey` PBKDF2-SHA256 (600k Iter.) + AES-GCM-verschlüsselt als Backup in
-  ObjectService-Collection `e2e-keys` (ref `{ userId }`). Backup-Passwort =
+- **Persönliches Keypair** (`nacl.box`, X25519): `publicKey` **und** das
+  PBKDF2-SHA256 (600k Iter.) + AES-GCM-verschlüsselte Backup liegen im
+  **ChatProfil** des Nutzers (ProfileService `MessangerProfile`, eigener
+  Profil-Write) — bewusst dort statt im GlobalProfile, damit andere Apps (z.B.
+  VirtualOffice) den `publicKey` cross-app lesen können. Backup-Passwort =
   **Login-Passwort**. Der `secretKey` lebt nur **in-memory** (`e2eKeyStore`, wie
   `tokenStore`) und wird beim Logout gewiped.
 - **DMs**: `nacl.box` mit **ephemerem Absender-Keypair pro Nachricht** (Forward
@@ -222,7 +224,32 @@ Client-seitiger E2E-Layer auf Basis von **tweetnacl** (`src/services/crypto/`):
 - **publicKey-Vertrauen**: Empfänger-`publicKey` wird ungeprüft vom ProfileService
   geholt (kein Fingerprint-Pinning/TOFU). Vertraulichkeit hängt an der Integrität
   des ProfileService — **Folge-Issue**.
-- **Keine Key-Rotation bei Mitgliederwechsel**: `e2eService.rotateChannelKey`
-  existiert, wird aber noch **nicht** automatisch von Add/Remove-Member
-  ausgelöst. Bis dahin erhalten neu hinzugefügte Mitglieder keinen Key und
-  entfernte behalten ihren (kein Backward-Secrecy) — **Folge-Issue**.
+- **Key-Rotation bei Mitgliederwechsel** (Issue #11, implementiert): Add/Remove
+  im `ChannelMembersModal` löst — sofern der Akteur Channel-Admin ist und der
+  Channel verschlüsselt — eine Rotation aus (`e2eService.rotateForMembership`):
+  neue Version = max(vorhandene)+1, nur für die resultierende Mitgliederliste
+  gewrappt. Alte Versionen bleiben lesbar (Historie); entfernte Mitglieder
+  erhalten die neue Version nie (Backward-Secrecy), neu hinzugefügte lesen ab der
+  neuen Version. **Verbleibende Grenzen:** (a) Rotation braucht einen online
+  Channel-Admin-Client — bei Self-Leave oder Aktion durch einen Nicht-Admin
+  (z.B. Channel-Assistent) bleibt sie **ausstehend**, bis ein Admin online ist
+  (UI-Hinweis); (b) ein hinzugefügtes Mitglied ohne publizierten `publicKey` wird
+  beim Wrappen übersprungen (Hinweis im UI) und liest erst nach eigener
+  Key-Provisionierung + erneuter Rotation.
+
+**Aktivierung (Ops, kein Client-Code):**
+- **Unique-Index auf `channel-keys`** über das abgeleitete Einzelfeld
+  `data.vkey` (`"channelId:userId:version"`): `POST /admin/indexes
+  { "field": "vkey", "unique": true }`. Der Client schreibt `vkey` bei jedem
+  Key-Dokument; da die ObjectService-Index-API nur ein einzelnes `field` kennt,
+  bündelt `vkey` die drei Bestandteile in einen indexierbaren Wert. Die Version
+  wird client-seitig als `max(vorhandene)+1` bestimmt; der Unique-Index lässt
+  einen kollidierenden `create` bei gleichzeitigen Admin-Rotationen fehlschlagen
+  — der Client erkennt den Konflikt, berechnet die Version neu und versucht es
+  erneut. **Ohne** den Index greift dieser Schutz nicht und parallele Rotationen
+  können denselben Versions-Index mit unterschiedlichen Keys belegen →
+  Nachrichten dieser Version werden für manche Mitglieder unlesbar.
+- **ProfileService-Annahme:** Das `keyBackup`-Feld der `MessangerProfile` darf
+  **nur** im eigenen Profil (`myMessangerProfile`) lesbar sein, **nicht** im
+  fremd-lesbaren `messangerProfile(userId)`-Resolver (dort nur `publicKey`). Das
+  Backup ist zwar passwortverschlüsselt, sollte aber nicht breit exponiert sein.
