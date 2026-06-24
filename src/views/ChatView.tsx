@@ -5,6 +5,7 @@ import TopBar from '../components/layout/TopBar'
 import UserListPanel from '../components/layout/UserListPanel'
 import ChatArea from '../components/chat/ChatArea'
 import MessageInput from '../components/chat/MessageInput'
+import KeyVerificationNotice from '../components/chat/KeyVerificationNotice'
 import AnnouncementView from '../components/channels/AnnouncementView'
 import ForumView from '../components/channels/ForumView'
 import FaqView from '../components/channels/FaqView'
@@ -45,8 +46,12 @@ function MainContent() {
   if (!activeSpaceId && activeConversationId) {
     const conv = getConversation(activeConversationId)
     if (!conv || !currentUser) return <EmptyState />
+    const partnerName = getUser(activeConversationId)?.displayName ?? conv.partnerName ?? 'Chat'
     return (
       <>
+        {!conv.isGroup && (
+          <KeyVerificationNotice partnerId={activeConversationId} partnerName={partnerName} />
+        )}
         {conv.isLoading
           ? <div className="flex-1 flex items-center justify-center text-discord-muted text-sm">Lädt Nachrichten…</div>
           : <ChatArea messages={conv.messages} currentUserId={currentUser.id} getUser={getUser} />}

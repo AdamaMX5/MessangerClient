@@ -21,9 +21,20 @@ import {
   wrapChannelKeyForMember, unwrapChannelKey,
 } from './crypto/cryptoCore'
 import { encryptSecretKey, decryptSecretKey, type KeyBackupBlob } from './crypto/keyBackup'
+import { keyPinning, type TofuResult } from './crypto/keyPinning'
+import { fingerprint } from './crypto/fingerprint'
 
 const APP = 'MessangerClient'
 const CHANNEL_KEYS = 'channel-keys'
+
+// TOFU trust state of a recipient's key as last resolved this session (#13).
+// 'first-use' = newly pinned, 'verified' = matched the pin, 'mismatch' = changed
+// since it was pinned (possible substitution — warn the user).
+export type KeyTrust = 'first-use' | 'verified' | 'mismatch'
+
+function trustOf(result: TofuResult): KeyTrust {
+  return result === 'match' ? 'verified' : result
+}
 
 // Stored wrapped channel key (collection `channel-keys`, one per member per
 // version). `wrappedKey` is the group key sealed to the member's public key.
@@ -45,6 +56,9 @@ function vkeyOf(channelId: string, userId: string, version: number): string {
 
 // Cache of resolved member public keys (userId → Base64 public key | null).
 const publicKeyCache = new Map<string, string | null>()
+
+// TOFU trust state per user as last resolved this session (userId → KeyTrust).
+const keyTrustCache = new Map<string, KeyTrust>()
 
 // Pure helper: the next group-key version given the current maximum (0 if no key
 // exists yet). Exposed for unit testing the rotation versioning.
@@ -82,6 +96,7 @@ export const e2eService = {
         const secretKey = await decryptSecretKey(blob, password)
         e2eKeyStore.setKeyPair(publicKey, secretKey)
         publicKeyCache.set(userId, publicKey)
+        keyPinning.setOwner(userId)
         return true
       }
       return await this.provision(userId, password)
@@ -99,23 +114,63 @@ export const e2eService = {
     const blob = await encryptSecretKey(kp.secretKey, password)
     await profileService.setMyE2EKeys(kp.publicKey, JSON.stringify(blob))
     publicKeyCache.set(userId, kp.publicKey)
+    keyPinning.setOwner(userId)
     e2eKeyStore.setKeyPair(kp.publicKey, kp.secretKey)
     return true
   },
 
-  // Wipe all key material (logout).
+  // Wipe per-session key material (logout). TOFU pins persist on purpose — they
+  // are public and must survive sessions for the trust check to be meaningful.
   lock(): void {
     e2eKeyStore.clear()
     publicKeyCache.clear()
+    keyTrustCache.clear()
+    keyPinning.setOwner('') // back to the 'anon' scope until next login
   },
 
   // Resolve a user's public key (cached) from their ChatProfil. Returns null if
-  // unavailable — the caller then sends plaintext to that recipient.
+  // unavailable — the caller then sends plaintext to that recipient. Every freshly
+  // resolved key runs through TOFU pinning (#13): the trust result is recorded so
+  // the UI can flag a changed (possibly substituted) key.
   async getRecipientPublicKey(userId: string): Promise<string | null> {
     if (publicKeyCache.has(userId)) return publicKeyCache.get(userId) ?? null
     const key = await profileService.getPublicKey(userId).catch(() => null)
     publicKeyCache.set(userId, key)
+    if (key) keyTrustCache.set(userId, trustOf(keyPinning.checkAndPin(userId, key)))
     return key
+  },
+
+  // The key to actually ENCRYPT to: the pinned (first-trusted) key once one
+  // exists, otherwise the freshly resolved key (which first-use then pins).
+  // Encrypting to the pinned key means a ProfileService that later substitutes a
+  // key cannot intercept — only the originally trusted recipient can read — until
+  // the user explicitly accepts the change via acceptKeyChange (#13, audit #2).
+  async trustedKeyFor(userId: string): Promise<string | null> {
+    const current = await this.getRecipientPublicKey(userId) // resolves + runs TOFU
+    return keyPinning.getPinned(userId) ?? current
+  },
+
+  // TOFU trust state of a user's key as last resolved this session, or null if
+  // not resolved yet.
+  getKeyTrust(userId: string): KeyTrust | null {
+    return keyTrustCache.get(userId) ?? null
+  },
+
+  // Human-verifiable fingerprint of a user's current public key, or null if no
+  // key is available.
+  async keyFingerprint(userId: string): Promise<string | null> {
+    const key = await this.getRecipientPublicKey(userId)
+    return key ? fingerprint(key) : null
+  },
+
+  // Explicitly accept a user's changed key (verified out of band) — re-pins it so
+  // it is trusted again.
+  acceptKeyChange(userId: string): void {
+    const key = publicKeyCache.get(userId)
+    if (key) {
+      keyPinning.acceptKey(userId, key)
+      keyTrustCache.set(userId, 'verified')
+    }
   },
 
   // ─── Channel group keys ────────────────────────────────────────────────────
@@ -205,7 +260,8 @@ export const e2eService = {
   async distributeKey(channelId: string, memberIds: string[], version: number): Promise<number> {
     const groupKey = generateChannelKey()
     const wraps = await Promise.all(memberIds.map(async uid => {
-      const pub = await this.getRecipientPublicKey(uid)
+      // Wrap to the trusted (pinned) key so a substituted key cannot join the rotation.
+      const pub = await this.trustedKeyFor(uid)
       return pub ? { uid, wrappedKey: wrapChannelKeyForMember(groupKey, pub) } : null
     }))
     const valid = wraps.filter((w): w is { uid: string; wrappedKey: string } => w !== null)

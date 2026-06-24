@@ -230,13 +230,30 @@ Client-seitiger E2E-Layer auf Basis von **tweetnacl** (`src/services/crypto/`):
     Key hat bzw. die DM-Sitzung gesperrt ist.
   Das *Fehlen* des Schlosses an einer Nachricht ist das eigentliche
   Downgrade-Signal. Tests: `src/services/crypto/messageCrypto.test.ts`.
-- **Keine Absender-Authentizität**: `nacl.box` mit ephemerem Key authentifiziert
-  den Absender nicht — die Vertrauenswürdigkeit von `senderId` kommt aus dem
-  server-seitig JWT-geprüften MessageService (`senderId = JWT.sub`), nicht aus
-  der Krypto. Für ein internes Tool akzeptabel.
-- **publicKey-Vertrauen**: Empfänger-`publicKey` wird ungeprüft vom ProfileService
-  geholt (kein Fingerprint-Pinning/TOFU). Vertraulichkeit hängt an der Integrität
-  des ProfileService — **Folge-Issue**.
+- **Absender-Authentizität** (Issue #13, bewertet): `nacl.box` mit ephemerem Key
+  authentifiziert den Absender nicht — die Vertrauenswürdigkeit von `senderId`
+  kommt aus dem server-seitig JWT-geprüften MessageService (`senderId = JWT.sub`),
+  nicht aus der Krypto. **Bewertung:** Eine zusätzliche kryptografische
+  Absender-Bindung (z.B. `nacl.sign`/Ed25519-Signatur über den Ciphertext mit
+  einem zweiten, langlebigen Signing-Key) ist **bewusst zurückgestellt**: sie
+  bräuchte ein zweites Schlüsselpaar inkl. Backup/Verteilung, hebt die
+  Deniability auf und bringt im internen Bedrohungsmodell (ein extern unfälschbarer
+  JWT-`sub` als Vertrauensanker) wenig Mehrwert. Bei Öffnung nach außen neu bewerten.
+- **publicKey-Vertrauen** (Issue #13, gehärtet): Empfänger-`publicKey` wird jetzt
+  **TOFU-gepinnt** (`src/services/crypto/keyPinning.ts`): beim ersten Sehen
+  gepinnt (localStorage — öffentliche Keys, keine Secrets; **pro lokalem
+  Login-User namespaced**, kein Cross-User-Sharing). Verschlüsselt wird stets an
+  den **gepinnten** Key (`e2eService.trustedKeyFor`) — eine spätere
+  Server-Substitution greift damit ins Leere (nur der ursprünglich vertraute
+  Empfänger kann lesen), nicht nur Warnung. Bei Key-Wechsel zeigt die UI eine
+  **Warnung**; der Nutzer muss den neuen Key nach Out-of-Band-Verifikation des
+  lesbaren **Fingerprints** (`fingerprint.ts`, SHA-256/128-bit, im DM via
+  `KeyVerificationNotice`) explizit **bestätigen** (`acceptKeyChange` → re-pin).
+  **Restrisiko:** Beim allerersten Kontakt wird dem ProfileService vertraut
+  (TOFU-Baseline); ein Mid-Session-Key-Wechsel wird wegen des Session-Caches erst
+  beim nächsten Login erkannt (Vertraulichkeit bleibt aber durch das Pinning
+  gewahrt); XSS könnte Pins überschreiben (degradiert nur auf No-Pinning, kein
+  Secret-Leak). Tests: `keyPinning.test.ts`, `fingerprint.test.ts`.
 - **Key-Rotation bei Mitgliederwechsel** (Issue #11, implementiert): Add/Remove
   im `ChannelMembersModal` löst — sofern der Akteur Channel-Admin ist und der
   Channel verschlüsselt — eine Rotation aus (`e2eService.rotateForMembership`):

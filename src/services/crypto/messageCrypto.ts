@@ -33,7 +33,9 @@ export interface DecryptedBody {
 // the plaintext unchanged.
 export async function encryptDmBody(recipientId: string, plaintext: string): Promise<string> {
   if (!e2eKeyStore.isUnlocked()) return plaintext
-  const pub = await e2eService.getRecipientPublicKey(recipientId)
+  // Encrypt to the TOFU-trusted (pinned) key, not whatever the server returns now,
+  // so a later key substitution cannot intercept (#13).
+  const pub = await e2eService.trustedKeyFor(recipientId)
   if (!pub) return plaintext
   try {
     return sealForRecipient(plaintext, pub)

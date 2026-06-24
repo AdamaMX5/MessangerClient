@@ -6,7 +6,7 @@ import { profileService, type MessangerProfile } from '../services/profileServic
 import { messageService } from '../services/messageService'
 import { objectService } from '../services/objectService'
 import { clearAccessToken } from '../services/tokenStore'
-import { e2eService } from '../services/e2eService'
+import { e2eService, type KeyTrust } from '../services/e2eService'
 import {
   encryptDmBody, decryptDmBody, encryptChannelBody, decryptChannelBody,
 } from '../services/crypto/messageCrypto'
@@ -46,6 +46,12 @@ interface JwtPayload {
   sub?: string
   email?: string
   roles?: string[]
+}
+
+// TOFU key status of a user for the verification UI (#13).
+export interface KeyStatus {
+  fingerprint: string
+  trust: KeyTrust
 }
 
 // Decode a JWT payload for UI purposes only — this is NOT a security check,
@@ -106,6 +112,10 @@ interface AppContextType {
   // Whether an encrypted channel has a usable group key loaded this session.
   // False → messages would be sent as plaintext; the UI shows the warning state.
   channelE2EReady: (channelId: string) => boolean
+  // TOFU key verification (#13): the partner's fingerprint + trust state, and an
+  // action to accept a changed key after out-of-band verification.
+  getKeyStatus: (userId: string) => KeyStatus | undefined
+  acceptKeyChange: (userId: string) => Promise<void>
   reloadSpaces: () => Promise<void>
 
   // Navigation
@@ -150,6 +160,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // (even with the session unlocked) still sends plaintext, so it must NOT show
   // as secure (#12).
   const [e2eReadyChannels, setE2eReadyChannels] = useState<Set<string>>(new Set())
+  // TOFU key status (fingerprint + trust) per resolved user, for the DM
+  // verification UI (#13).
+  const [keyStatuses, setKeyStatuses] = useState<Map<string, KeyStatus>>(new Map())
 
   // Mirror currentUser into a ref so callbacks can read the latest identity
   // without taking it as a dependency (avoids recreating stable callbacks).
@@ -165,6 +178,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Cache of resolved DM-partner profiles (userId → display data), so the
   // sidebar can show names/avatars for users outside the static demo list.
   const partnerProfiles = useRef(new Map<string, { name: string; avatarUrl?: string }>())
+
+  // Mirror conversations into a ref so the key-status effect can read isGroup
+  // without taking `conversations` as a dependency (which would re-run it on
+  // every message poll).
+  const conversationsRef = useRef<Conversation[]>([])
+  conversationsRef.current = conversations
 
   const [activeSpaceId, setActiveSpaceId] = useState<string | null>(null)
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null)
@@ -221,6 +240,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       e2eService.lock()
       setE2eUnlocked(false)
       setE2eReadyChannels(new Set())
+      setKeyStatuses(new Map())
       loggingOutRef.current = false
     }
   }, [])
@@ -374,6 +394,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void load()
     const id = setInterval(() => void load(), ACTIVE_CONVERSATION_POLL_MS)
     return () => { cancelled = true; clearInterval(id) }
+  }, [currentUser, activeConversationId])
+
+  // Resolve the active DM partner's TOFU key status (fingerprint + trust) for the
+  // verification UI (#13). Only for 1:1 DMs; group ids have no single key.
+  useEffect(() => {
+    if (!currentUser || !activeConversationId) return
+    const partnerId = activeConversationId
+    if (conversationsRef.current.find(c => c.id === partnerId)?.isGroup) return
+    let cancelled = false
+    void (async () => {
+      const fp = await e2eService.keyFingerprint(partnerId).catch(() => null)
+      const trust = e2eService.getKeyTrust(partnerId)
+      if (cancelled || !fp || !trust) return
+      setKeyStatuses(prev => new Map(prev).set(partnerId, { fingerprint: fp, trust }))
+    })()
+    return () => { cancelled = true }
   }, [currentUser, activeConversationId])
 
   // Silent session restore on mount: if a refresh cookie exists, this succeeds
@@ -599,10 +635,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const channelE2EReady = useCallback((id: string) =>
     e2eReadyChannels.has(id), [e2eReadyChannels])
 
+  const getKeyStatus = useCallback((userId: string): KeyStatus | undefined =>
+    keyStatuses.get(userId), [keyStatuses])
+
+  // Accept a user's changed key (user verified the fingerprint out of band),
+  // then refresh the cached status so the UI clears the warning.
+  const acceptKeyChange = useCallback(async (userId: string): Promise<void> => {
+    e2eService.acceptKeyChange(userId)
+    const fp = await e2eService.keyFingerprint(userId).catch(() => null)
+    const trust = e2eService.getKeyTrust(userId)
+    if (fp && trust) setKeyStatuses(prev => new Map(prev).set(userId, { fingerprint: fp, trust }))
+  }, [])
+
   // Set default logged-in user on mount (demo convenience)
   const value: AppContextType = {
     currentUser, isAuthLoading, checkEmail, login, register, logout, refreshProfile,
-    users, spaces, conversations, messangerProfile, e2eUnlocked, channelE2EReady, reloadSpaces: loadSpaces,
+    users, spaces, conversations, messangerProfile, e2eUnlocked, channelE2EReady,
+    getKeyStatus, acceptKeyChange, reloadSpaces: loadSpaces,
     activeSpaceId, activeChannelId, activeConversationId,
     setActiveSpace, setActiveChannel, setActiveConversation,
     showUserList, toggleUserList,
